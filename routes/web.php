@@ -37,5 +37,8 @@ Route::middleware([
     require __DIR__ . '/web/bonuses.php';
     require __DIR__ . '/web/incident-requests.php';
     require __DIR__ . '/web/attendances.php';
+    require __DIR__ . '/web/pos.php';
+    require __DIR__ . '/web/products.php';
+    require __DIR__ . '/web/categories.php';
 
 });
