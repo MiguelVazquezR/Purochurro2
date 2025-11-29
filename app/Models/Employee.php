@@ -25,6 +25,7 @@ class Employee extends Model implements HasMedia
         'email',
         'hired_at',
         'base_salary',
+        'vacation_balance',
         'is_active',
         'aws_face_id',
         'default_schedule_template',
@@ -34,6 +35,7 @@ class Employee extends Model implements HasMedia
         'birth_date' => 'date',
         'hired_at' => 'date',
         'base_salary' => 'decimal:2',
+        'vacation_balance' => 'decimal:4',
         'is_active' => 'boolean',
         'default_schedule_template' => 'array',
     ];
@@ -47,8 +49,41 @@ class Employee extends Model implements HasMedia
         return $this->belongsTo(User::class);
     }
 
-    // --- Accessors ---
+    public function bonuses()
+    {
+        return $this->belongsToMany(Bonus::class, 'employee_bonus')
+            ->withPivot('assigned_date', 'amount')
+            ->withTimestamps();
+    }
+    
+    // AGREGADO: Relación con logs de vacaciones
+    public function vacationLogs()
+    {
+        return $this->hasMany(VacationLog::class)->latest();
+    }
 
+    // --- Métodos Helper ---
+
+    /**
+     * Ajusta el saldo de vacaciones y crea el log correspondiente.
+     */
+    public function adjustVacationBalance(float $days, string $type, string $description, ?int $userId = null)
+    {
+        $before = $this->vacation_balance;
+        $this->vacation_balance += $days;
+        $this->save();
+
+        $this->vacationLogs()->create([
+            'user_id' => $userId, // Admin que hizo el cambio
+            'type' => $type,
+            'days' => $days,
+            'balance_before' => $before,
+            'balance_after' => $this->vacation_balance,
+            'description' => $description,
+        ]);
+    }
+
+    // ... Accessors y MediaLibrary (sin cambios) ...
     protected function fullName(): Attribute
     {
         return Attribute::make(
@@ -63,8 +98,6 @@ class Employee extends Model implements HasMedia
         );
     }
 
-    // --- Configuración Spatie MediaLibrary ---
-
     public function registerMediaCollections(): void
     {
         $this->addMediaCollection('avatar')
@@ -78,8 +111,6 @@ class Employee extends Model implements HasMedia
             ->fit(Fit::Crop, 150, 150)
             ->nonQueued();
             
-        // Mantenemos la conversión optimizada por si decides enviar 
-        // los bytes de esta imagen local a AWS Rekognition más adelante.
         $this->addMediaConversion('rekognition_optimized')
             ->width(800)
             ->height(800)

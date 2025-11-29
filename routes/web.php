@@ -32,5 +32,10 @@ Route::middleware([
     
     // Rutas de Empleados
     require __DIR__ . '/web/employees.php';
+    require __DIR__ . '/web/payrolls.php';
+    require __DIR__ . '/web/holidays.php';
+    require __DIR__ . '/web/bonuses.php';
+    require __DIR__ . '/web/incident-requests.php';
+    require __DIR__ . '/web/attendances.php';
 
 });
