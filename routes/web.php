@@ -41,5 +41,6 @@ Route::middleware([
     require __DIR__ . '/web/products.php';
     require __DIR__ . '/web/categories.php';
     require __DIR__ . '/web/expenses.php';
+    require __DIR__ . '/web/sales.php';
 
 });
