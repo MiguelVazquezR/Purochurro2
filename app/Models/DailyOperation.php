@@ -25,4 +25,9 @@ class DailyOperation extends Model
             ->withPivot('location_id')
             ->using(DailyOperationEmployee::class);
     }
+
+    public function sales()
+    {
+        return $this->hasMany(Sale::class);
+    }
 }
