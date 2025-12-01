@@ -14,5 +14,4 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-Route::resource('products', ProductController::class)
-    ->except(['create', 'edit']); // create y edit no son necesarios si usas modales en el Index
+Route::resource('products', ProductController::class);

@@ -41,6 +41,11 @@ class Product extends Model implements HasMedia
     {
         return $this->hasMany(Inventory::class);
     }
+    
+    public function category()
+    {
+        return $this->belongsTo(Category::class);
+    }
 
     // Helper para obtener stock de una ubicación específica
     public function stockIn(Location $location)

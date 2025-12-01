@@ -11,7 +11,7 @@ defineProps({
 const isMobileSidebarOpen = ref(false);
 const isDesktopSidebarCollapsed = ref(false);
 
-// Cargar estado del sidebar desde localStorage al montar
+// Cargar estado del sidebar desde localStorage
 onMounted(() => {
     const savedState = localStorage.getItem('sidebar-collapsed');
     if (savedState !== null) {
@@ -30,7 +30,6 @@ const toggleDesktopSidebar = () => {
 </script>
 
 <template>
-    <!-- Agregado overflow-x-hidden para evitar scroll horizontal en móvil -->
     <div class="min-h-screen bg-surface-50 font-sans text-surface-900 selection:bg-orange-100 selection:text-orange-700 overflow-x-hidden">
         <Head :title="title" />
 
@@ -38,26 +37,32 @@ const toggleDesktopSidebar = () => {
         <Toast position="bottom-right" />
         <ConfirmDialog />
 
-        <!-- Topbar -->
+        <!-- Topbar (Fijo arriba) -->
         <div class="fixed top-0 left-0 right-0 z-50">
             <AppTopbar @toggle-sidebar="toggleMobileSidebar" />
         </div>
 
-        <!-- Sidebar -->
-        <!-- Pasamos el estado 'collapsed' y escuchamos el evento para alternarlo -->
+        <!-- Sidebar (Fijo izquierda) -->
         <AppSidebar 
             v-model:visible="isMobileSidebarOpen"
             :collapsed="isDesktopSidebarCollapsed"
             @toggle-collapsed="toggleDesktopSidebar"
         />
 
-        <!-- Contenido Principal -->
-        <!-- El margen izquierdo (ml) ahora es dinámico: 64 (expandido) o 20 (colapsado) -->
+        <!-- 
+            WRAPPER PRINCIPAL (El que se ajusta al Sidebar)
+            Nota: Ya NO tiene 'container mx-auto'. Su única función es dar el margen izquierdo.
+            Usamos 'w-auto' implícito (bloque) para que ocupe todo el ancho restante.
+        -->
         <main 
-            class="pt-20 px-4 pb-8 transition-all duration-300 container mx-auto max-w-7xl"
+            class="pt-20 pb-8 px-4 transition-all duration-300 min-h-screen flex flex-col"
             :class="isDesktopSidebarCollapsed ? 'md:ml-20' : 'md:ml-64'"
         >
-            <div class="fade-in-up">
+            <!-- 
+                CONTENEDOR DE CENTRADO (El que centra el contenido)
+                Este div toma el espacio disponible dentro del main y centra el contenido.
+            -->
+            <div class="w-full max-w-7xl mx-auto fade-in-up flex-1">
                 <slot />
             </div>
         </main>

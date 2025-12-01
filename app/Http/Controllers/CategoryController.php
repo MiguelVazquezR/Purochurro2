@@ -19,39 +19,37 @@ class CategoryController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255|unique:categories,name',
-            // Valida formato HEX (ej: #fff o #ffffff)
-            'color' => ['nullable', 'string', 'max:7', 'regex:/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/'],
+            'color' => ['nullable', 'string', 'max:7'],
         ]);
+        $validated['color'] = '#'.$validated['color'];
 
         Category::create($validated);
 
-        return redirect()->route('categories.index')
-            ->with('success', 'Categoría creada correctamente.');
+        // CAMBIO: Usamos back() para mantener al usuario en el formulario de producto si viene de ahí
+        return back()->with('success', 'Categoría creada correctamente.');
     }
 
     public function update(Request $request, Category $category)
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255|unique:categories,name,' . $category->id,
-            'color' => ['nullable', 'string', 'max:7', 'regex:/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/'],
+            'color' => ['nullable', 'string', 'max:7'],
         ]);
+        $validated['color'] = '#'.$validated['color'];
 
         $category->update($validated);
 
-        return redirect()->route('categories.index')
-            ->with('success', 'Categoría actualizada correctamente.');
+        return back()->with('success', 'Categoría actualizada correctamente.');
     }
 
     public function destroy(Category $category)
     {
-        // Opcional: Validar si tiene productos antes de borrar
         if ($category->products()->exists()) {
             return back()->with('error', 'No se puede eliminar porque tiene productos asociados.');
         }
 
         $category->delete();
 
-        return redirect()->route('categories.index')
-            ->with('success', 'Categoría eliminada correctamente.');
+        return back()->with('success', 'Categoría eliminada correctamente.');
     }
 }

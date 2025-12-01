@@ -45,10 +45,7 @@ const toggleUserMenu = (event) => {
 
             <!-- Logo -->
             <Link :href="route('dashboard')" class="flex items-center gap-2 group">
-                <AuthenticationCardLogo class="w-8 h-8 text-orange-600 group-hover:scale-110 transition-transform duration-300" />
-                <span class="text-lg font-bold tracking-tight text-surface-900 hidden sm:block">
-                    Puro<span class="text-orange-600">churro</span>
-                </span>
+                <AuthenticationCardLogo class="w-20 text-orange-600 group-hover:scale-110 transition-transform duration-300" />
             </Link>
         </div>
 
