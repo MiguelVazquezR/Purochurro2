@@ -164,5 +164,10 @@ return [
         'payment_method' => 'método de pago',
         'provider' => 'proveedor o comercio',
         'notes' => 'motivo',
+        'first_name' => 'nombres',
+        'last_name' => 'apellidos',
+        'birth_date' => 'fecha de nacimiento',
+        'phone' => 'teléfono',
+        'address' => 'dirección',
     ],
 ];

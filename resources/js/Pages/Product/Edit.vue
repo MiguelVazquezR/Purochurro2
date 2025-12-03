@@ -234,24 +234,3 @@ const submit = () => {
         </div>
     </AppLayout>
 </template>
-
-<style scoped>
-:deep(.p-inputtext), :deep(.p-textarea) {
-    border-radius: 0.75rem;
-    padding: 0.5rem 1rem; 
-}
-:deep(.p-select) {
-    border-radius: 0.75rem;
-}
-:deep(.p-inputnumber-input) {
-    border-radius: 0.75rem;
-    padding: 0.75rem 1rem;
-}
-:deep(.p-select .p-select-label) {
-    padding: 0.5rem 0.5rem; 
-}
-:deep(.p-toggleswitch.p-toggleswitch-checked .p-toggleswitch-slider) {
-    background: #f97316 !important;
-    border-color: #f97316 !important;
-}
-</style>

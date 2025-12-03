@@ -136,7 +136,7 @@ const deleteProduct = (product) => {
 
                     <template #empty>
                         <div class="text-center p-8 text-surface-400">
-                            <i class="pi pi-box text-4xl mb-3 opacity-50"></i>
+                            <i class="pi pi-box !text-4xl mb-3 opacity-50"></i>
                             <p>No se encontraron productos.</p>
                         </div>
                     </template>
@@ -240,21 +240,3 @@ const deleteProduct = (product) => {
         </div>
     </AppLayout>
 </template>
-
-<style scoped>
-:deep(.p-datatable-header) {
-    border-top-left-radius: 1.5rem;
-    border-top-right-radius: 1.5rem;
-}
-
-:deep(.p-paginator) {
-    background: transparent;
-    border-top: 1px solid var(--p-surface-100);
-}
-
-:deep(.p-paginator .p-paginator-page.p-paginator-page-selected) {
-    background: #fff7ed;
-    color: #ea580c;
-    border-radius: 50%;
-}
-</style>

@@ -9,5 +9,4 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 
-Route::resource('expenses', ExpenseController::class)
-    ->except(['create', 'edit']);
+Route::resource('expenses', ExpenseController::class);

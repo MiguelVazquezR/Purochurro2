@@ -28,6 +28,7 @@
         "@primeuix/themes": "^1.2.5",
         "chart.js": "3.3.2",
         "date-fns": "^4.1.0",
+        "lodash": "^4.17.21",
         "primeicons": "^7.0.0",
         "primevue": "^4.5.0"
     }

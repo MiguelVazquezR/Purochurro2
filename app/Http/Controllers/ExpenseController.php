@@ -10,8 +10,7 @@ class ExpenseController extends Controller
 {
     public function index()
     {
-        // Listar gastos ordenados por fecha descendente (lo más nuevo primero)
-        $expenses = Expense::with('user') // Cargamos quién lo hizo
+        $expenses = Expense::with('user')
             ->orderBy('date', 'desc')
             ->orderBy('created_at', 'desc')
             ->get();
@@ -19,6 +18,12 @@ class ExpenseController extends Controller
         return Inertia::render('Expense/Index', [
             'expenses' => $expenses
         ]);
+    }
+
+    // --- NUEVO MÉTODO AGREGADO ---
+    public function create()
+    {
+        return Inertia::render('Expense/Create');
     }
 
     public function store(Request $request)
@@ -30,11 +35,18 @@ class ExpenseController extends Controller
             'notes' => 'nullable|string|max:1000',
         ]);
 
-        // Asignamos el usuario autenticado
         $request->user()->expenses()->create($validated);
 
         return redirect()->route('expenses.index')
             ->with('success', 'Gasto registrado correctamente.');
+    }
+
+    // Método edit opcional si planeas hacer una página de edición dedicada también
+    public function edit(Expense $expense)
+    {
+        return Inertia::render('Expense/Edit', [
+            'expense' => $expense
+        ]);
     }
 
     public function update(Request $request, Expense $expense)

@@ -52,8 +52,19 @@ const menuItems = computed(() => {
     return items.filter(item => item.visible);
 });
 
+// Helper mejorado para verificar rutas activas (Soporta sub-rutas de recursos)
 const isRouteActive = (routeName) => {
-    return routeName && route().current(`${routeName}*`);
+    if (!routeName) return false;
+    
+    // Si la ruta es del tipo 'resource.index', verificamos por el prefijo base 'resource.*'
+    // Esto asegura que 'products.create' o 'products.edit' mantengan activo el menú 'products.index'
+    if (routeName.endsWith('.index')) {
+        const baseRoute = routeName.replace('.index', '');
+        return route().current(`${baseRoute}*`);
+    }
+    
+    // Comportamiento normal para otras rutas
+    return route().current(`${routeName}*`);
 };
 
 // Función para alternar grupos

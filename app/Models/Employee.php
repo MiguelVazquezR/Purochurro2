@@ -29,18 +29,55 @@ class Employee extends Model implements HasMedia
         'is_active',
         'aws_face_id',
         'default_schedule_template',
+        // Nuevos campos
+        'termination_date',
+        'termination_reason',
+        'termination_notes',
     ];
 
     protected $casts = [
         'birth_date' => 'date',
         'hired_at' => 'date',
+        'termination_date' => 'date', // Cast para fecha de baja
         'base_salary' => 'decimal:2',
         'vacation_balance' => 'decimal:4',
         'is_active' => 'boolean',
         'default_schedule_template' => 'array',
     ];
 
-    protected $appends = ['full_name', 'profile_photo_url'];
+    protected $appends = ['full_name', 'profile_photo_url', 'years_of_service', 'vacation_days_entitled'];
+
+    // --- Lógica Mexicana (Adaptada a tus campos) ---
+
+    /**
+     * Calcula antigüedad en años (float para cálculos precisos)
+     */
+    public function getYearsOfServiceAttribute()
+    {
+        $end = $this->termination_date ?? now();
+        // Usamos hired_at en lugar de entry_date
+        return $this->hired_at ? $this->hired_at->floatDiffInYears($end) : 0;
+    }
+
+    /**
+     * Días de vacaciones por ley (Tabla 2024 México)
+     */
+    public function getVacationDaysEntitledAttribute()
+    {
+        $years = floor($this->years_of_service);
+
+        if ($years < 1) return 0;
+        if ($years == 1) return 12;
+        if ($years == 2) return 14;
+        if ($years == 3) return 16;
+        if ($years == 4) return 18;
+        if ($years == 5) return 20;
+        if ($years >= 6 && $years <= 10) return 22;
+        if ($years >= 11 && $years <= 15) return 24;
+        if ($years >= 16 && $years <= 20) return 26;
+        
+        return 28; // 21+ años
+    }
 
     // --- Relaciones ---
 
@@ -48,42 +85,16 @@ class Employee extends Model implements HasMedia
     {
         return $this->belongsTo(User::class);
     }
-
-    public function bonuses()
-    {
-        return $this->belongsToMany(Bonus::class, 'employee_bonus')
-            ->withPivot('assigned_date', 'amount')
-            ->withTimestamps();
-    }
     
-    // AGREGADO: Relación con logs de vacaciones
     public function vacationLogs()
     {
-        return $this->hasMany(VacationLog::class)->latest();
+        // Asumiendo que crearás este modelo después si lo necesitas, 
+        // por ahora dejo comentado o retorno null para evitar errores si no existe la tabla
+         return $this->hasMany(VacationLog::class)->latest();
     }
 
-    // --- Métodos Helper ---
+    // --- Accessors ---
 
-    /**
-     * Ajusta el saldo de vacaciones y crea el log correspondiente.
-     */
-    public function adjustVacationBalance(float $days, string $type, string $description, ?int $userId = null)
-    {
-        $before = $this->vacation_balance;
-        $this->vacation_balance += $days;
-        $this->save();
-
-        $this->vacationLogs()->create([
-            'user_id' => $userId, // Admin que hizo el cambio
-            'type' => $type,
-            'days' => $days,
-            'balance_before' => $before,
-            'balance_after' => $this->vacation_balance,
-            'description' => $description,
-        ]);
-    }
-
-    // ... Accessors y MediaLibrary (sin cambios) ...
     protected function fullName(): Attribute
     {
         return Attribute::make(
@@ -98,6 +109,8 @@ class Employee extends Model implements HasMedia
         );
     }
 
+    // --- Media Library ---
+
     public function registerMediaCollections(): void
     {
         $this->addMediaCollection('avatar')
@@ -109,11 +122,6 @@ class Employee extends Model implements HasMedia
     {
         $this->addMediaConversion('thumb')
             ->fit(Fit::Crop, 150, 150)
-            ->nonQueued();
-            
-        $this->addMediaConversion('rekognition_optimized')
-            ->width(800)
-            ->height(800)
             ->nonQueued();
     }
 }
