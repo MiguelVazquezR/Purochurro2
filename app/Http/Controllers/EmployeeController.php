@@ -78,7 +78,7 @@ class EmployeeController extends Controller
 
     public function show(Employee $employee)
     {
-        $employee->load(['media', 'user']);
+        $employee->load(['media', 'user', 'vacationLogs']);
 
         // Stats de Vacaciones
         $vacationStats = [
