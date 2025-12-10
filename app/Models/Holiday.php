@@ -14,6 +14,6 @@ class Holiday extends Model
     protected $casts = [
         'date' => 'date',
         'mandatory_rest' => 'boolean',
-        'pay_multiplier' => 'decimal:1',
+        'pay_multiplier' => 'integer',
     ];
 }

@@ -53,9 +53,6 @@ class Employee extends Model implements HasMedia
         return $this->belongsTo(User::class);
     }
 
-    /**
-     * Relación con Bonos (Historial de bonos asignados)
-     */
     public function bonuses()
     {
         return $this->belongsToMany(Bonus::class, 'employee_bonus')
@@ -91,6 +88,35 @@ class Employee extends Model implements HasMedia
         if ($years >= 16 && $years <= 20) return 26;
         
         return 28;
+    }
+
+    // --- MÉTODOS DE NEGOCIO (FALTANTE AGREGADO) ---
+
+    /**
+     * Ajusta el saldo de vacaciones y registra el log correspondiente.
+     *
+     * @param float $days Días a sumar (positivo) o restar (negativo)
+     * @param string $type Tipo de movimiento ('usage', 'adjustment', 'accrual')
+     * @param string $description Notas o justificación
+     * @param int|null $userId ID del usuario que realiza la acción (admin)
+     */
+    public function adjustVacationBalance(float $days, string $type, string $description, ?int $userId = null)
+    {
+        $oldBalance = $this->vacation_balance;
+        
+        // Actualizamos saldo
+        $this->vacation_balance += $days;
+        $this->save();
+
+        // Creamos el log
+        $this->vacationLogs()->create([
+            'user_id' => $userId,
+            'type' => $type,
+            'days' => $days,
+            'balance_before' => $oldBalance,
+            'balance_after' => $this->vacation_balance,
+            'description' => $description,
+        ]);
     }
 
     // --- Accessors ---
