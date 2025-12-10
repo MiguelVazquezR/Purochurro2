@@ -29,7 +29,6 @@ class Employee extends Model implements HasMedia
         'is_active',
         'aws_face_id',
         'default_schedule_template',
-        // Nuevos campos
         'termination_date',
         'termination_reason',
         'termination_notes',
@@ -38,7 +37,7 @@ class Employee extends Model implements HasMedia
     protected $casts = [
         'birth_date' => 'date',
         'hired_at' => 'date',
-        'termination_date' => 'date', // Cast para fecha de baja
+        'termination_date' => 'date',
         'base_salary' => 'decimal:2',
         'vacation_balance' => 'decimal:4',
         'is_active' => 'boolean',
@@ -47,21 +46,36 @@ class Employee extends Model implements HasMedia
 
     protected $appends = ['full_name', 'profile_photo_url', 'years_of_service', 'vacation_days_entitled'];
 
-    // --- Lógica Mexicana (Adaptada a tus campos) ---
+    // --- Relaciones ---
 
-    /**
-     * Calcula antigüedad en años (float para cálculos precisos)
-     */
-    public function getYearsOfServiceAttribute()
+    public function user()
     {
-        $end = $this->termination_date ?? now();
-        // Usamos hired_at en lugar de entry_date
-        return $this->hired_at ? $this->hired_at->floatDiffInYears($end) : 0;
+        return $this->belongsTo(User::class);
     }
 
     /**
-     * Días de vacaciones por ley (Tabla 2024 México)
+     * Relación con Bonos (Historial de bonos asignados)
      */
+    public function bonuses()
+    {
+        return $this->belongsToMany(Bonus::class, 'employee_bonus')
+            ->withPivot('assigned_date', 'amount')
+            ->withTimestamps();
+    }
+    
+    public function vacationLogs()
+    {
+         return $this->hasMany(VacationLog::class)->latest();
+    }
+
+    // --- Lógica Mexicana ---
+
+    public function getYearsOfServiceAttribute()
+    {
+        $end = $this->termination_date ?? now();
+        return $this->hired_at ? $this->hired_at->floatDiffInYears($end) : 0;
+    }
+
     public function getVacationDaysEntitledAttribute()
     {
         $years = floor($this->years_of_service);
@@ -76,21 +90,7 @@ class Employee extends Model implements HasMedia
         if ($years >= 11 && $years <= 15) return 24;
         if ($years >= 16 && $years <= 20) return 26;
         
-        return 28; // 21+ años
-    }
-
-    // --- Relaciones ---
-
-    public function user()
-    {
-        return $this->belongsTo(User::class);
-    }
-    
-    public function vacationLogs()
-    {
-        // Asumiendo que crearás este modelo después si lo necesitas, 
-        // por ahora dejo comentado o retorno null para evitar errores si no existe la tabla
-         return $this->hasMany(VacationLog::class)->latest();
+        return 28;
     }
 
     // --- Accessors ---

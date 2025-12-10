@@ -20,10 +20,10 @@ const expandedGroups = ref({});
 const menuItems = computed(() => {
     // Definimos sub-items de Nóminas
     const nominaSubItems = [
-        { label: 'Bonos', route: 'bonuses.index', icon: 'pi pi-star', visible: isAdmin.value },
-        { label: 'Días festivos', route: 'holidays.index', icon: 'pi pi-calendar-plus', visible: isAdmin.value },
         { label: 'Periodos de nómina', route: 'payroll.index', icon: 'pi pi-calendar', visible: true },
         { label: 'Turnos', route: 'shifts.index', icon: 'pi pi-clock', visible: isAdmin.value },
+        { label: 'Bonos', route: 'bonuses.index', icon: 'pi pi-star', visible: isAdmin.value },
+        { label: 'Días festivos', route: 'holidays.index', icon: 'pi pi-calendar-plus', visible: isAdmin.value },
     ].filter(item => item.visible);
 
     const items = [

@@ -13,16 +13,17 @@ class Bonus extends Model
         'name',
         'description',
         'amount',
-        'type', // 'fixed', 'percentage', etc.
-        'is_active'
+        'type', 
+        'is_active',
+        'rule_config'
     ];
 
     protected $casts = [
         'amount' => 'decimal:2',
         'is_active' => 'boolean',
+        'rule_config' => 'array',
     ];
 
-    // Relación con empleados (Historial de asignaciones)
     public function employees()
     {
         return $this->belongsToMany(Employee::class, 'employee_bonus')

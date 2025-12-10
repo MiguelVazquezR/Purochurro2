@@ -25,7 +25,17 @@ return new class extends Migration
             $table->text('description')->nullable();
             $table->decimal('amount', 10, 2)->nullable(); // Monto fijo si aplica
             $table->string('type')->default('fixed'); // fixed, percentage, rule_based
+            // Guardará la configuración lógica. Ej:
+            // { 
+            //   "concept": "late_minutes", 
+            //   "operator": "<=", 
+            //   "value": 15, 
+            //   "scope": "period_accumulated",
+            //   "behavior": "fixed_amount" 
+            // }
+            $table->json('rule_config')->nullable();
             $table->boolean('is_active')->default(true);
+
             $table->timestamps();
         });
 

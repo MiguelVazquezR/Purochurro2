@@ -16,7 +16,7 @@ Route::post('/payroll/settlement', [PayrollController::class, 'storeSettlement']
 
 // Rutas de Turnos (Catálogo)
 // Usamos apiResource o resource excluyendo create/edit/show si usamos modales en el index
-Route::resource('shifts', ShiftController::class)->except(['create', 'edit', 'show']);
+Route::resource('shifts', ShiftController::class)->except(['show']);
 
 // Rutas de Horarios / Calendario
 Route::get('/schedule', [ScheduleController::class, 'index'])->name('schedule.index');

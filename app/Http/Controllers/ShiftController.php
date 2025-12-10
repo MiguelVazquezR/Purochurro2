@@ -8,15 +8,17 @@ use Inertia\Inertia;
 
 class ShiftController extends Controller
 {
-    /**
-     * Muestra la lista de turnos.
-     * Para Catálogos pequeños como este, Index suele servir para Crear/Editar también (vía Modales).
-     */
     public function index()
     {
         return Inertia::render('Shift/Index', [
             'shifts' => Shift::orderBy('start_time')->get()
         ]);
+    }
+
+    // --- NUEVO ---
+    public function create()
+    {
+        return Inertia::render('Shift/Create');
     }
 
     public function store(Request $request)
@@ -26,11 +28,23 @@ class ShiftController extends Controller
             'start_time' => 'required|date_format:H:i',
             'end_time' => 'required|date_format:H:i',
             'color' => 'nullable|string|max:7',
+            'is_active' => 'boolean',
         ]);
+
+        $validated['color'] = '#' . $validated['color'];
 
         Shift::create($validated);
 
-        return redirect()->back()->with('success', 'Turno creado correctamente.');
+        return redirect()->route('shifts.index')
+            ->with('success', 'Turno creado correctamente.');
+    }
+
+    // --- NUEVO ---
+    public function edit(Shift $shift)
+    {
+        return Inertia::render('Shift/Edit', [
+            'shift' => $shift
+        ]);
     }
 
     public function update(Request $request, Shift $shift)
@@ -43,14 +57,18 @@ class ShiftController extends Controller
             'is_active' => 'boolean'
         ]);
 
+        $validated['color'] = '#' . $validated['color'];
+
         $shift->update($validated);
 
-        return redirect()->back()->with('success', 'Turno actualizado.');
+        return redirect()->route('shifts.index')
+            ->with('success', 'Turno actualizado.');
     }
 
     public function destroy(Shift $shift)
     {
         $shift->delete();
-        return redirect()->back()->with('success', 'Turno eliminado.');
+        return redirect()->route('shifts.index')
+            ->with('success', 'Turno eliminado.');
     }
 }

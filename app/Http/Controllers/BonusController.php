@@ -6,18 +6,17 @@ use App\Models\Bonus;
 use App\Models\Employee;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
+use Illuminate\Validation\Rule;
 
 class BonusController extends Controller
 {
     public function index()
     {
-        // Mostramos todos (incluso inactivos) para gestión
         return Inertia::render('Bonus/Index', [
             'bonuses' => Bonus::orderBy('name')->get(),
         ]);
     }
 
-    // --- NUEVO ---
     public function create()
     {
         return Inertia::render('Bonus/Create');
@@ -31,6 +30,14 @@ class BonusController extends Controller
             'description' => 'nullable|string',
             'type' => 'required|string|in:fixed,percentage', 
             'is_active' => 'boolean',
+            // Validación de reglas (opcional, puede ser null)
+            'rule_config' => 'nullable|array',
+            // Si se envían reglas, validamos su estructura interna
+            'rule_config.concept' => 'required_with:rule_config|string|in:late_minutes,unjustified_absences,extra_minutes,attendance',
+            'rule_config.operator' => 'required_with:rule_config|string|in:<=,>=,=,>,<',
+            'rule_config.value' => 'required_with:rule_config|numeric',
+            'rule_config.scope' => 'required_with:rule_config|string|in:daily,period_total,period_accumulated',
+            'rule_config.behavior' => 'required_with:rule_config|string|in:fixed_amount,pay_per_unit',
         ]);
 
         Bonus::create($validated);
@@ -39,7 +46,6 @@ class BonusController extends Controller
             ->with('success', 'Bono creado correctamente.');
     }
 
-    // --- NUEVO ---
     public function edit(Bonus $bonus)
     {
         return Inertia::render('Bonus/Edit', [
@@ -55,6 +61,13 @@ class BonusController extends Controller
             'description' => 'nullable|string',
             'type' => 'required|string|in:fixed,percentage',
             'is_active' => 'boolean',
+            
+            'rule_config' => 'nullable|array',
+            'rule_config.concept' => 'required_with:rule_config|string|in:late_minutes,unjustified_absences,extra_minutes,attendance',
+            'rule_config.operator' => 'required_with:rule_config|string|in:<=,>=,=,>,<',
+            'rule_config.value' => 'required_with:rule_config|numeric',
+            'rule_config.scope' => 'required_with:rule_config|string|in:daily,period_total,period_accumulated',
+            'rule_config.behavior' => 'required_with:rule_config|string|in:fixed_amount,pay_per_unit',
         ]);
 
         $bonus->update($validated);
@@ -70,9 +83,6 @@ class BonusController extends Controller
             ->with('success', 'Bono eliminado.');
     }
 
-    /**
-     * Asigna un bono a un empleado (Función API/Ajax, se mantiene igual o back)
-     */
     public function assign(Request $request)
     {
         $validated = $request->validate([
