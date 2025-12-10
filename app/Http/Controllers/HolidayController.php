@@ -15,6 +15,12 @@ class HolidayController extends Controller
         ]);
     }
 
+    // --- NUEVO ---
+    public function create()
+    {
+        return Inertia::render('Holiday/Create');
+    }
+
     public function store(Request $request)
     {
         $validated = $request->validate([
@@ -26,7 +32,16 @@ class HolidayController extends Controller
 
         Holiday::create($validated);
 
-        return back()->with('success', 'Día feriado registrado.');
+        return redirect()->route('holidays.index')
+            ->with('success', 'Día feriado registrado.');
+    }
+
+    // --- NUEVO ---
+    public function edit(Holiday $holiday)
+    {
+        return Inertia::render('Holiday/Edit', [
+            'holiday' => $holiday
+        ]);
     }
 
     public function update(Request $request, Holiday $holiday)
@@ -39,12 +54,15 @@ class HolidayController extends Controller
         ]);
 
         $holiday->update($validated);
-        return back()->with('success', 'Día feriado actualizado.');
+        
+        return redirect()->route('holidays.index')
+            ->with('success', 'Día feriado actualizado.');
     }
 
     public function destroy(Holiday $holiday)
     {
         $holiday->delete();
-        return back()->with('success', 'Día feriado eliminado.');
+        return redirect()->route('holidays.index')
+            ->with('success', 'Día feriado eliminado.');
     }
 }

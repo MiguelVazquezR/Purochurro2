@@ -11,9 +11,16 @@ class BonusController extends Controller
 {
     public function index()
     {
+        // Mostramos todos (incluso inactivos) para gestión
         return Inertia::render('Bonus/Index', [
-            'bonuses' => Bonus::where('is_active', true)->get(),
+            'bonuses' => Bonus::orderBy('name')->get(),
         ]);
+    }
+
+    // --- NUEVO ---
+    public function create()
+    {
+        return Inertia::render('Bonus/Create');
     }
 
     public function store(Request $request)
@@ -23,11 +30,21 @@ class BonusController extends Controller
             'amount' => 'required|numeric|min:0',
             'description' => 'nullable|string',
             'type' => 'required|string|in:fixed,percentage', 
+            'is_active' => 'boolean',
         ]);
 
         Bonus::create($validated);
 
-        return back()->with('success', 'Bono creado correctamente.');
+        return redirect()->route('bonuses.index')
+            ->with('success', 'Bono creado correctamente.');
+    }
+
+    // --- NUEVO ---
+    public function edit(Bonus $bonus)
+    {
+        return Inertia::render('Bonus/Edit', [
+            'bonus' => $bonus
+        ]);
     }
 
     public function update(Request $request, Bonus $bonus)
@@ -36,22 +53,25 @@ class BonusController extends Controller
             'name' => 'required|string|max:100',
             'amount' => 'required|numeric|min:0',
             'description' => 'nullable|string',
+            'type' => 'required|string|in:fixed,percentage',
             'is_active' => 'boolean',
         ]);
 
         $bonus->update($validated);
-        return back()->with('success', 'Bono actualizado.');
+        
+        return redirect()->route('bonuses.index')
+            ->with('success', 'Bono actualizado.');
     }
 
     public function destroy(Bonus $bonus)
     {
         $bonus->delete();
-        return back()->with('success', 'Bono eliminado.');
+        return redirect()->route('bonuses.index')
+            ->with('success', 'Bono eliminado.');
     }
 
     /**
-     * Asigna un bono existente a un empleado en una fecha específica.
-     * Esto llena la tabla pivote 'employee_bonus'.
+     * Asigna un bono a un empleado (Función API/Ajax, se mantiene igual o back)
      */
     public function assign(Request $request)
     {
@@ -59,14 +79,11 @@ class BonusController extends Controller
             'employee_id' => 'required|exists:employees,id',
             'bonus_id' => 'required|exists:bonuses,id',
             'assigned_date' => 'required|date',
-            'amount' => 'nullable|numeric|min:0', // Permite sobreescribir el monto por defecto
+            'amount' => 'nullable|numeric|min:0', 
         ]);
 
         $bonus = Bonus::findOrFail($validated['bonus_id']);
-        
-        // Si no envían monto personalizado, usamos el del catálogo
         $finalAmount = $validated['amount'] ?? $bonus->amount;
-
         $employee = Employee::findOrFail($validated['employee_id']);
         
         $employee->bonuses()->attach($bonus->id, [
@@ -76,6 +93,6 @@ class BonusController extends Controller
             'updated_at' => now(),
         ]);
 
-        return back()->with('success', 'Bono asignado al empleado correctamente.');
+        return back()->with('success', 'Bono asignado correctamente.');
     }
 }
