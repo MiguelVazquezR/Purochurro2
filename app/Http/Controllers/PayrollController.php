@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Enums\IncidentType;
 use App\Models\Attendance;
 use App\Models\Employee;
+use App\Models\Holiday;
 use App\Models\PayrollReceipt;
 use App\Models\WorkSchedule;
 use App\Services\PayrollService;
@@ -45,17 +46,46 @@ class PayrollController extends Controller
         $start = Carbon::parse($startDate)->startOfWeek(Carbon::SUNDAY);
         $end = $start->copy()->endOfWeek(Carbon::SATURDAY);
 
+        // --- INICIO MODIFICACIÓN: Lógica de Festivos Recurrentes ---
+        // 1. Obtenemos los meses involucrados en la semana (ej: cruce de meses)
+        $months = array_unique([$start->month, $end->month]);
+
+        // 2. Traemos festivos por MES, ignorando el año.
+        // Esto permite que festivos creados en 2023 o 2024 apliquen en 2025 si coinciden en día/mes.
+        $holidaysCollection = Holiday::query()
+            ->whereIn(DB::raw('MONTH(date)'), $months)
+            ->get();
+
+        // Creamos un mapa keyBy('m-d') para búsqueda rápida dentro del bucle
+        // Usamos el formato 'm-d' (Mes-Día) para comparar sin importar el año
+        $holidaysLookup = $holidaysCollection->keyBy(function ($h) {
+            return Carbon::parse($h->date)->format('m-d');
+        });
+
+        // Preparamos la lista para enviarla "cruda" a Vue (si tu componente la necesita)
+        $holidaysPayload = $holidaysCollection->map(function ($holiday) {
+            return [
+                'id' => $holiday->id,
+                'name' => $holiday->name,
+                'date' => $holiday->date, // Vue puede usar esto para mostrar en calendario
+                'mandatory' => $holiday->mandatory ?? true,
+                'day_month' => Carbon::parse($holiday->date)->format('m-d'), // Ayuda extra para el front
+            ];
+        });
+        // --- FIN MODIFICACIÓN ---
+
         $employees = Employee::with(['media'])
             ->where('is_active', true)
             ->orderBy('first_name')
             ->get();
 
-        $payrollData = $employees->map(function ($employee) use ($start, $end) {
+        $payrollData = $employees->map(function ($employee) use ($start, $end, $holidaysLookup) {
             $days = [];
             $period = $start->copy();
 
             while ($period <= $end) {
                 $dateStr = $period->format('Y-m-d');
+                $monthDay = $period->format('m-d'); // Clave para buscar festivo recurrente
                 
                 $attendance = Attendance::where('employee_id', $employee->id)
                     ->where('date', $dateStr)
@@ -68,11 +98,15 @@ class PayrollController extends Controller
 
                 $incident = $attendance ? $attendance->incident_type : null;
                 
+                // Usamos el lookup de mes-día en lugar de fecha completa
+                $holiday = $holidaysLookup->get($monthDay); 
+                
+                // Lógica de etiqueta por defecto
                 if (!$attendance) {
                     if ($schedule && $schedule->shift_id) {
-                         $incidentLabel = 'Pendiente / Falta';
+                         $incidentLabel = 'Falta / Pendiente';
                     } else {
-                         $incidentLabel = 'Descanso Programado';
+                         $incidentLabel = 'Descanso'; // Si no hay turno y no hay asistencia
                     }
                 } else {
                     $incidentLabel = $attendance->incident_type->label();
@@ -89,6 +123,11 @@ class PayrollController extends Controller
                     'is_late' => $attendance?->is_late ?? false,
                     'late_ignored' => $attendance?->late_ignored ?? false,
                     'schedule_shift' => $schedule?->shift?->name,
+                    'is_rest_day' => (!$schedule || !$schedule->shift_id), // Flag explícito de descanso
+                    'holiday_data' => $holiday ? [ // Datos del festivo si existe
+                        'name' => $holiday->name,
+                        'multiplier' => $holiday->pay_multiplier ?? 2.0 // Fallback si no existe la prop
+                    ] : null,
                 ];
 
                 $period->addDay();
@@ -104,11 +143,12 @@ class PayrollController extends Controller
             'startDate' => $start->format('Y-m-d'),
             'endDate' => $end->format('Y-m-d'),
             'payrollData' => $payrollData,
+            'holidays' => $holidaysPayload, // <--- Agregado para que Vue lo tenga disponible globalmente
             'incidentTypes' => array_column(IncidentType::cases(), 'value'),
         ]);
     }
 
-    // MODIFICADO: Lógica de descuento de vacaciones
+    // MANTENIDO: Lógica avanzada de descuento de vacaciones y transacciones
     public function updateDay(Request $request)
     {
         $validated = $request->validate([
@@ -147,7 +187,7 @@ class PayrollController extends Controller
 
             $attendance->save();
 
-            // --- Lógica de Vacaciones ---
+            // --- Lógica de Vacaciones (Intacta) ---
             $employee = Employee::find($validated['employee_id']);
             $dateStr = Carbon::parse($validated['date'])->format('d/m/Y');
 
@@ -179,7 +219,6 @@ class PayrollController extends Controller
         }
     }
 
-    // ... settlement (GET) sin cambios ...
     public function settlement(Request $request, string $startDate)
     {
         $start = Carbon::parse($startDate)->startOfWeek(Carbon::SUNDAY);
@@ -210,8 +249,8 @@ class PayrollController extends Controller
         ]);
     }
 
-    // MODIFICADO: Lógica de acumulación semanal de vacaciones
-   public function storeSettlement(Request $request)
+    // MANTENIDO: Lógica de cierre y limpieza de media
+    public function storeSettlement(Request $request)
     {
         $request->validate([
             'start_date' => 'required|date',
@@ -257,11 +296,9 @@ class PayrollController extends Controller
             }
 
             // 2. LIMPIEZA DE FOTOS (Requisito Específico)
-            // Buscamos todas las asistencias en este rango de fechas
             $attendances = Attendance::whereBetween('date', [$start->format('Y-m-d'), $end->format('Y-m-d')])->get();
 
             foreach ($attendances as $attendance) {
-                // Borra los archivos físicos y registros en media_table
                 $attendance->clearMediaCollection('check_in_photo');
                 $attendance->clearMediaCollection('check_out_photo');
             }
