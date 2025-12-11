@@ -8,10 +8,9 @@ import Checkbox from 'primevue/checkbox';
 dayjs.locale('es-mx');
 
 const props = defineProps({
-    payrollData: Array,
+    payrollData: Array, // Datos pre-calculados del servicio
     startDate: String,
     endDate: String,
-    holidays: { type: Array, default: () => [] }
 });
 
 const dateRangeLabel = computed(() => {
@@ -30,17 +29,13 @@ const formatCurrency = (value) => {
     }).format(value || 0);
 };
 
-const getHolidayInfo = (dateStr) => {
-    if (!props.holidays || props.holidays.length === 0) return null;
-    const target = dayjs(dateStr).format('MM-DD');
-    return props.holidays.find(h => dayjs(h.date).format('MM-DD') === target);
-};
-
 // --- Lógica de Selección ---
 const selectedIds = ref([]);
 
 onMounted(() => {
-    selectedIds.value = props.payrollData.map(d => d.employee.id);
+    if (props.payrollData && props.payrollData.length > 0) {
+        selectedIds.value = props.payrollData.map(d => d.employee.id);
+    }
 });
 
 const allSelected = computed(() => {
@@ -59,62 +54,98 @@ const printableEmployees = computed(() => {
     return props.payrollData.filter(d => selectedIds.value.includes(d.employee.id));
 });
 
-// --- Lógica de Cálculo ---
-const getReceiptData = (employeeData) => {
-    const baseSalary = parseFloat(employeeData.employee.base_salary) || 0;
-    const days = employeeData.days;
+// --- Construcción de Datos para Recibo ---
+const getReceiptData = (dataItem) => {
+    // Recuperamos los objetos de desglose que vienen del Backend
+    const breakdown = dataItem.breakdown || {};
+    // totals_breakdown viene del nuevo servicio. Si no existe (versión vieja), fallback a objeto vacío.
+    const moneyBreakdown = dataItem.totals_breakdown || {}; 
+    const baseSalary = parseFloat(dataItem.employee.base_salary) || 0;
     
-    let concepts = {
-        worked_shifts: { count: 0, amount: 0, label: 'Turnos trabajados' },
-        holidays_worked: { count: 0, amount: 0, label: 'Festivos laborados' },
-        holidays_rest: { count: 0, amount: 0, label: 'Días festivos (descanso)' },
-        vacations: { count: 0, amount: 0, label: 'Vacaciones' },
-        bonuses: { count: 0, amount: 0, label: 'Bonos / incentivos' },
-        commissions: { count: 0, amount: 250, label: 'Comisiones (ventas)' },
+    // --- Lógica de Importes ---
+    // Usamos los totales calculados por el servicio (source of truth) en lugar de recalcular visualmente.
+
+    // 1. Días Normales
+    const workedDays = { 
+        count: breakdown.days_worked || 0, 
+        // Si existe el desglose monetario, úsalo. Si no, cálculo simple fallback.
+        amount: moneyBreakdown.salary_normal !== undefined 
+            ? moneyBreakdown.salary_normal 
+            : (breakdown.days_worked || 0) * baseSalary, 
+        label: 'Turnos trabajados' 
     };
 
-    days.forEach(day => {
-        const holiday = getHolidayInfo(day.date);
-        let shiftUnits = 0;
-        
-        if (day.check_in && day.check_out) {
-            const start = dayjs(`2000-01-01 ${day.check_in}`);
-            let end = dayjs(`2000-01-01 ${day.check_out}`);
-            if (end.isBefore(start)) end = end.add(1, 'day');
-            const hours = end.diff(start, 'hour', true);
-            
-            if (hours >= 9) shiftUnits = 2;
-            else if (hours > 0) shiftUnits = 1;
-        } else if (day.incident_type === 'asistencia' && !day.check_in) {
-             shiftUnits = 1;
-        }
+    // 2. Festivos (Desglose Laborado vs No Laborado)
+    // El servicio nos da el total de dinero de festivos en 'salary_holidays'.
+    // Vamos a desglosarlo visualmente para el recibo.
+    
+    const holidaysRestCount = breakdown.holidays_rest || 0;
+    const holidaysWorkedCount = breakdown.holidays_worked || 0;
+    const totalHolidayMoney = moneyBreakdown.salary_holidays || 0;
 
-        if (holiday && shiftUnits > 0) {
-            const multiplier = holiday.pay_multiplier || 3;
-            concepts.holidays_worked.count += shiftUnits;
-            concepts.holidays_worked.amount += (baseSalary * multiplier * shiftUnits);
-        } else if (holiday) {
-            concepts.holidays_rest.count++;
-            concepts.holidays_rest.amount += baseSalary;
-        } else if (day.incident_type === 'vacaciones') {
-            concepts.vacations.count++;
-            concepts.vacations.amount += baseSalary;
-        } else if (shiftUnits > 0) {
-            concepts.worked_shifts.count += shiftUnits;
-            concepts.worked_shifts.amount += (baseSalary * shiftUnits);
-        }
-    });
+    // A. Festivo No Laborado (Descanso pagado): Generalmente es sueldo base x 1
+    const holidaysRestAmount = holidaysRestCount * baseSalary;
 
-    if (employeeData.employee.bonuses) {
-        employeeData.employee.bonuses.forEach(bonus => {
-            concepts.bonuses.amount += parseFloat(bonus.pivot?.amount || bonus.amount || 0);
-        });
-        concepts.bonuses.count = employeeData.employee.bonuses.length;
+    // B. Festivo Laborado: Es el remanente del dinero total de festivos
+    // (Esto asegura que la suma de A + B siempre cuadre con el total calculado por el servicio)
+    let holidaysWorkedAmount = 0;
+    if (holidaysWorkedCount > 0) {
+        holidaysWorkedAmount = totalHolidayMoney - holidaysRestAmount;
+        // Protección visual por si el cálculo da negativo (raro, solo si configuración cambió)
+        if (holidaysWorkedAmount < 0) holidaysWorkedAmount = 0; 
+    } else if (holidaysRestCount > 0 && totalHolidayMoney > 0) {
+        // Si solo hay descansados, todo el dinero es de ahí (ajuste de precisión)
+        // holidaysRestAmount = totalHolidayMoney; 
+        // (Opcional, pero arriba ya asignamos baseSalary * count, que es lo estándar)
     }
 
-    const totalPay = Object.values(concepts).reduce((acc, curr) => acc + curr.amount, 0);
+    const holidaysRest = {
+        count: holidaysRestCount,
+        amount: holidaysRestAmount,
+        label: 'Festivos (Descanso)'
+    };
 
-    return { concepts, totalPay };
+    const holidaysWorked = {
+        count: holidaysWorkedCount,
+        amount: holidaysWorkedAmount,
+        label: 'Festivos Laborados'
+    };
+
+    // 3. Vacaciones
+    const vacations = { 
+        count: breakdown.vacations || 0, 
+        amount: moneyBreakdown.salary_vacations !== undefined
+            ? moneyBreakdown.salary_vacations
+            : (breakdown.vacations || 0) * baseSalary, 
+        label: 'Vacaciones' 
+    };
+
+    // 4. Otros Conceptos
+    const bonusesList = breakdown.bonuses || []; // Bonos reales del servicio
+    
+    // Comisiones (Visual Frontend - Ejemplo)
+    const commissions = { count: 0, amount: 250, label: 'Comisiones (ventas)' }; 
+    
+    let totalPay = parseFloat(dataItem.total_pay);
+
+    // Sumar comisión default si trabajó (Lógica frontend existente)
+    if (workedDays.count > 0) {
+        totalPay += commissions.amount;
+    } else {
+        commissions.amount = 0;
+    }
+
+    return { 
+        concepts: {
+            worked_days: workedDays,
+            holidays_rest: holidaysRest,
+            holidays_worked: holidaysWorked,
+            vacations: vacations,
+            bonuses_list: bonusesList,
+            commissions: commissions
+        }, 
+        totalPay 
+    };
 };
 
 const print = () => window.print();
@@ -168,7 +199,7 @@ const print = () => window.print();
                          <Checkbox v-model="selectedIds" :value="empData.employee.id" />
                     </div>
 
-                    <!-- Data calculada -->
+                    <!-- Data procesada -->
                     <div :set="receipt = getReceiptData(empData)" 
                          class="p-4 print:p-2 h-full flex flex-col justify-between transition-colors group-hover:bg-gray-50 print:group-hover:bg-transparent">
                         
@@ -184,7 +215,7 @@ const print = () => window.print();
                                 </div>
                             </div>
                             <div class="text-right leading-none">
-                                <h2 class="text-sm font-bold">{{ empData.employee.full_name }}</h2>
+                                <h2 class="text-sm font-bold">{{ empData.employee.first_name }} {{ empData.employee.last_name }}</h2>
                                 <div class="text-xs text-gray-500 mt-0.5">ID: <span class="font-mono font-bold text-black">{{ empData.employee.id }}</span> | Sueldo Turno: <span class="font-mono font-bold text-black">{{ formatCurrency(empData.employee.base_salary) }}</span></div>
                             </div>
                         </div>
@@ -200,10 +231,46 @@ const print = () => window.print();
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-50">
-                                    <tr v-for="(concept, key) in receipt.concepts" :key="key" v-show="concept.amount > 0">
-                                        <td class="py-0.5 px-1 text-gray-800">{{ concept.label }}</td>
-                                        <td class="py-0.5 px-1 text-center text-gray-500">{{ concept.count > 0 ? concept.count : '-' }}</td>
-                                        <td class="py-0.5 px-1 text-right font-mono font-medium text-gray-900">{{ formatCurrency(concept.amount) }}</td>
+                                    <!-- Días Trabajados -->
+                                    <tr v-if="receipt.concepts.worked_days.count > 0">
+                                        <td class="py-0.5 px-1 text-gray-800">Turnos trabajados</td>
+                                        <td class="py-0.5 px-1 text-center text-gray-500">{{ receipt.concepts.worked_days.count }}</td>
+                                        <td class="py-0.5 px-1 text-right font-mono font-medium text-gray-900">{{ formatCurrency(receipt.concepts.worked_days.amount) }}</td>
+                                    </tr>
+                                    
+                                    <!-- Festivos NO Laborados (Descanso Pagado) -->
+                                    <tr v-if="receipt.concepts.holidays_rest.count > 0">
+                                        <td class="py-0.5 px-1 text-gray-800">Festivos (Descanso)</td>
+                                        <td class="py-0.5 px-1 text-center text-gray-500">{{ receipt.concepts.holidays_rest.count }}</td>
+                                        <td class="py-0.5 px-1 text-right font-mono font-medium text-gray-900">{{ formatCurrency(receipt.concepts.holidays_rest.amount) }}</td>
+                                    </tr>
+
+                                    <!-- Festivos Laborados (Pago Extra) -->
+                                    <tr v-if="receipt.concepts.holidays_worked.count > 0">
+                                        <td class="py-0.5 px-1 text-gray-800 font-bold">Festivos Laborados</td>
+                                        <td class="py-0.5 px-1 text-center text-gray-500 font-bold">{{ receipt.concepts.holidays_worked.count }}</td>
+                                        <td class="py-0.5 px-1 text-right font-mono font-bold text-gray-900">{{ formatCurrency(receipt.concepts.holidays_worked.amount) }}</td>
+                                    </tr>
+
+                                    <!-- Vacaciones -->
+                                    <tr v-if="receipt.concepts.vacations.count > 0">
+                                        <td class="py-0.5 px-1 text-gray-800">Vacaciones</td>
+                                        <td class="py-0.5 px-1 text-center text-gray-500">{{ receipt.concepts.vacations.count }}</td>
+                                        <td class="py-0.5 px-1 text-right font-mono font-medium text-gray-900">{{ formatCurrency(receipt.concepts.vacations.amount) }}</td>
+                                    </tr>
+
+                                    <!-- LISTA DE BONOS REALES -->
+                                    <tr v-for="(bonus, idx) in receipt.concepts.bonuses_list" :key="'b'+idx">
+                                        <td class="py-0.5 px-1 text-gray-800">{{ bonus.name }}</td>
+                                        <td class="py-0.5 px-1 text-center text-gray-500">1</td>
+                                        <td class="py-0.5 px-1 text-right font-mono font-medium text-gray-900">{{ formatCurrency(bonus.amount) }}</td>
+                                    </tr>
+
+                                    <!-- Comisiones Default -->
+                                    <tr v-if="receipt.concepts.commissions.amount > 0">
+                                        <td class="py-0.5 px-1 text-gray-800">Comisiones (Ventas)</td>
+                                        <td class="py-0.5 px-1 text-center text-gray-500">-</td>
+                                        <td class="py-0.5 px-1 text-right font-mono font-medium text-gray-900">{{ formatCurrency(receipt.concepts.commissions.amount) }}</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -230,7 +297,7 @@ const print = () => window.print();
                             <div class="flex justify-center">
                                 <div class="text-center w-40">
                                     <div class="h-px bg-gray-900 w-full mb-0.5"></div>
-                                    <p class="font-bold text-xs text-gray-900 uppercase truncate">{{ empData.employee.full_name }}</p>
+                                    <p class="font-bold text-xs text-gray-900 uppercase truncate">{{ empData.employee.first_name }} {{ empData.employee.last_name }}</p>
                                     <p class="text-[6px] text-gray-400 uppercase tracking-widest">Firma de conformidad</p>
                                 </div>
                             </div>
@@ -246,7 +313,6 @@ const print = () => window.print();
 <style scoped>
 @media print {
     @page {
-        /* Márgenes optimizados */
         margin: 4mm; 
         size: letter portrait;
     }
@@ -256,11 +322,6 @@ const print = () => window.print();
         -webkit-print-color-adjust: exact;
     }
 
-    /* AJUSTE CLAVE: 88mm en lugar de 90mm.
-       3 x 88mm = 264mm.
-       Espacio disponible hoja carta: 279mm - 8mm (márgenes) = 271mm.
-       Esto deja 7mm de holgura para evitar que se desborde a una nueva página.
-    */
     .receipt-container {
         height: 88mm; 
         page-break-inside: avoid;
@@ -268,15 +329,10 @@ const print = () => window.print();
         border-bottom: 1px dashed #ccc;
     }
     
-    /* Eliminar borde del último de la página */
     .receipt-container:nth-child(3n) {
         border-bottom: none;
     }
 
-    /* CORRECCIÓN DE HOJA EN BLANCO:
-       Solo forzar salto de página si NO es el último elemento de la lista.
-       Así, si tienes 3, 6 o 9, el último no pedirá una hoja nueva.
-    */
     .receipt-container:nth-child(3n):not(:last-child) {
         page-break-after: always;
     }

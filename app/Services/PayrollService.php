@@ -13,6 +13,7 @@ class PayrollService
 {
     /**
      * Calcula la nómina interpretando estrictamente las reglas configuradas.
+     * Retorna una estructura detallada para la generación de recibos.
      */
     public function calculate(Employee $employee, Carbon $start, Carbon $end): array
     {
@@ -35,8 +36,7 @@ class PayrollService
             ->get()
             ->keyBy(fn($s) => $s->date->format('Y-m-d'));
 
-        // SOLO cargamos bonos recurrentes activos (Configuración)
-        // Eliminamos la lectura de bonos manuales históricos (pivot employee_bonus)
+        // SOLO cargamos bonos recurrentes activos
         $activeBonuses = $employee->recurringBonuses()
             ->where('bonuses.is_active', true)
             ->wherePivot('is_active', true)
@@ -46,15 +46,24 @@ class PayrollService
         $totalPay = 0;
         $totalBonuses = 0;
         
+        // Contadores de DÍAS/INCIDENCIAS
         $counters = [
-            'days_worked' => 0,
-            'holidays_worked' => 0,
-            'holidays_rest' => 0,
+            'days_worked' => 0,       // Días normales trabajados
+            'holidays_worked' => 0,   // Festivos laborados
+            'holidays_rest' => 0,     // Festivos descansados (pagados)
             'vacations' => 0,
             'absences' => 0,     
             'lates' => 0,        
             'incapacity' => 0,   
             'permissions' => 0,
+        ];
+
+        // Desglose de DINERO por categoría (Para el recibo)
+        $moneyBreakdown = [
+            'salary_normal' => 0,     // Pago por días normales
+            'salary_holidays' => 0,   // Pago por festivos (trabajados o no)
+            'salary_vacations' => 0,  // Pago por vacaciones
+            'salary_other' => 0,      // Incapacidades, permisos pagados, etc.
         ];
 
         $periodStats = [
@@ -77,6 +86,8 @@ class PayrollService
             
             $dayPay = 0;
             $status = 'Normal';
+            $dayCategory = 'normal'; // Categoría para agrupación en recibo: normal, holiday, vacation, other
+            
             $isPayable = false;
             
             // Métricas del día para reglas
@@ -86,7 +97,7 @@ class PayrollService
             $dayIsAttendance = false;
 
             if ($attendance) {
-                // CORRECCIÓN DE FECHA DOBLE: Extraer H:i:s explícitamente
+                // Validación de horario y retardos
                 if ($attendance->check_in && $schedule?->shift) {
                     try {
                         $shiftTimeStr = Carbon::parse($schedule->shift->start_time)->format('H:i:s');
@@ -102,7 +113,6 @@ class PayrollService
                             }
                         }
                     } catch (\Exception $e) {
-                        // Fallback silencioso o log si el formato de hora es inválido
                         $dayLateMins = 0;
                     }
                 }
@@ -113,6 +123,7 @@ class PayrollService
                     $counters['lates']++;
                 }
 
+                // Switch principal de incidencias
                 switch ($attendance->incident_type) {
                     case IncidentType::ASISTENCIA:
                         $isPayable = true;
@@ -123,21 +134,26 @@ class PayrollService
                         $isPayable = true;
                         $counters['vacations']++;
                         $status = 'Vacaciones';
+                        $dayCategory = 'vacation';
                         break;
                     case IncidentType::DIA_FESTIVO:
+                        // Si se marca explícitamente como festivo en asistencia (raro si es automático, pero posible)
                         $isPayable = true;
                         $counters['holidays_rest']++;
                         $status = 'Día Festivo';
+                        $dayCategory = 'holiday';
                         break;
                     case IncidentType::INCAPACIDAD_TRABAJO:
                     case IncidentType::INCAPACIDAD_GENERAL:
                         $isPayable = true;
                         $counters['incapacity']++;
                         $status = 'Incapacidad';
+                        $dayCategory = 'other';
                         break;
                     case IncidentType::PERMISO_CON_GOCE:
                         $isPayable = true;
                         $status = 'Permiso con Goce';
+                        $dayCategory = 'other';
                         break;
                     case IncidentType::FALTA_INJUSTIFICADA:
                         $counters['absences']++;
@@ -151,33 +167,72 @@ class PayrollService
                     case IncidentType::DESCANSO:
                         $isPayable = true; 
                         $status = 'Descanso';
+                        // El descanso normalmente es parte del sueldo normal semanal
                         break;
                 }
             } else {
+                // Sin registro de asistencia
                 $status = 'Sin Registro';
                 if ($schedule && $schedule->shift_id) {
-                    $dayIsAbsent = true; // Tenía turno y no hay registro
+                    $dayIsAbsent = true; 
                 }
             }
 
-            // Pago Base
+            // --- CÁLCULO DE PAGO DEL DÍA ---
+            
+            // 1. Pago Base Ordinario
             if ($isPayable) {
                 $dayPay = $employee->base_salary;
             }
 
-            // Festivos Trabajados
-            if ($holiday && $attendance && $attendance->incident_type === IncidentType::ASISTENCIA) {
-                $multiplier = $holiday->pay_multiplier;
-                $dayPay = $employee->base_salary * $multiplier;
-                $counters['holidays_worked']++;
-                $counters['days_worked']--; 
-                $status = "Feriado Trabajado ({$holiday->name})";
-            } 
-            elseif ($holiday && $isPayable && $attendance && $attendance->incident_type !== IncidentType::ASISTENCIA) {
-                 $status = "Feriado ({$holiday->name})";
+            // 2. Lógica Específica de Festivos (Sobreescribe o ajusta)
+            if ($holiday) {
+                // Caso A: Festivo Laborado (Asistencia en día festivo)
+                if ($attendance && $attendance->incident_type === IncidentType::ASISTENCIA) {
+                    $multiplier = $holiday->pay_multiplier; // Ej: 3.0
+                    $dayPay = $employee->base_salary * $multiplier;
+                    
+                    $counters['holidays_worked']++;
+                    // Restamos del contador de 'normales' porque ya se cuenta aquí como festivo trabajado
+                    $counters['days_worked']--; 
+                    
+                    $status = "Feriado Laborado ({$holiday->name})";
+                    $dayCategory = 'holiday';
+                } 
+                // Caso B: Festivo Descansado (Pagado)
+                elseif ($isPayable && ($attendance->incident_type !== IncidentType::ASISTENCIA)) {
+                     // Ya se sumó el pago base arriba, solo ajustamos etiquetas
+                     $status = "Feriado ({$holiday->name})";
+                     $dayCategory = 'holiday';
+                     
+                     // Si la incidencia no era explícitamente DIA_FESTIVO, ajustamos contadores
+                     // (Ej: Era DESCANSO pero cayó en feriado)
+                     if ($attendance->incident_type !== IncidentType::DIA_FESTIVO) {
+                         $counters['holidays_rest']++;
+                         // No restamos de days_worked porque descanso no suma a days_worked
+                     }
+                }
             }
 
             $totalPay += $dayPay;
+
+            // Acumular dinero en su categoría para el recibo
+            if ($dayPay > 0) {
+                switch ($dayCategory) {
+                    case 'holiday':
+                        $moneyBreakdown['salary_holidays'] += $dayPay;
+                        break;
+                    case 'vacation':
+                        $moneyBreakdown['salary_vacations'] += $dayPay;
+                        break;
+                    case 'other':
+                        $moneyBreakdown['salary_other'] += $dayPay;
+                        break;
+                    default:
+                        $moneyBreakdown['salary_normal'] += $dayPay;
+                        break;
+                }
+            }
             
             // Guardar Stats
             $dailyStats[$dateStr] = [
@@ -192,12 +247,16 @@ class PayrollService
             if ($dayIsAbsent) $periodStats['unjustified_absences']++;
             if ($dayIsAttendance) $periodStats['attendance_days']++;
 
+            // Detalle para el recibo visual (lista de días)
             if ($dayPay > 0 || $attendance) {
                 $details['days'][] = [
                     'date' => $dateStr,
                     'amount' => $dayPay,
                     'concept' => $status,
-                    'incident' => $attendance?->incident_type->label() ?? 'N/A'
+                    'incident' => $attendance?->incident_type->label() ?? 'N/A',
+                    'category' => $dayCategory, // Útil para agrupar en Vue
+                    'is_holiday_worked' => ($dayCategory === 'holiday' && ($attendance && $attendance->incident_type === IncidentType::ASISTENCIA)),
+                    'is_holiday_rest' => ($dayCategory === 'holiday' && (!$attendance || $attendance->incident_type !== IncidentType::ASISTENCIA)),
                 ];
             }
 
@@ -209,7 +268,7 @@ class PayrollService
             $baseAmount = $bonus->pivot->amount ?? $bonus->amount;
             $config = $bonus->rule_config;
 
-            // CASO A: Bono Incondicional (Sin reglas) -> Se paga siempre (1 vez por periodo)
+            // CASO A: Bono Incondicional
             if (empty($config)) {
                 $totalPay += $baseAmount;
                 $totalBonuses += $baseAmount;
@@ -224,13 +283,10 @@ class PayrollService
             // CASO B: Bono con Reglas
             $bonusTotal = 0;
             
-            // B.1 Evaluación Diaria (Acumula por día cumplido)
+            // B.1 Evaluación Diaria
             if (isset($config['scope']) && $config['scope'] === 'daily') {
                 foreach ($dailyStats as $date => $stat) {
-                    // Si la regla es sobre asistencia, ignoramos días que no vino o no le tocaba
                     if ($config['concept'] === 'attendance' && !$stat['is_attendance']) continue;
-                    
-                    // Si la regla es sobre retardos, solo evaluamos días que asistió
                     if ($config['concept'] === 'late_minutes' && !$stat['is_attendance']) continue;
 
                     $valueToEvaluate = match($config['concept']) {
@@ -249,7 +305,7 @@ class PayrollService
                     }
                 }
             } 
-            // B.2 Evaluación Global del Periodo
+            // B.2 Evaluación Global
             else {
                 $valueToEvaluate = match($config['concept'] ?? '') {
                     'late_minutes' => $periodStats['late_minutes'],
@@ -264,7 +320,6 @@ class PayrollService
                         $bonusTotal += $baseAmount;
                     } 
                     elseif ($config['behavior'] === 'pay_per_unit') {
-                        // Ej: > 15 mins extra. Pagamos excedente.
                         $threshold = ($config['operator'] === '>') ? $config['value'] : 0;
                         $unitsToPay = max(0, $valueToEvaluate - $threshold);
                         $bonusTotal += ($unitsToPay * $baseAmount);
@@ -283,6 +338,7 @@ class PayrollService
             }
         }
         
+        // Total de días pagados que implican trabajo real (Normales + Festivos Laborados)
         $totalDaysWorked = $counters['days_worked'] + $counters['holidays_worked'];
 
         return [
@@ -290,6 +346,8 @@ class PayrollService
             'total_pay' => round($totalPay, 2),
             'days_worked' => $totalDaysWorked,
             'total_bonuses' => round($totalBonuses, 2),
+            // 'totals_breakdown' es clave para mostrar resumen en el recibo
+            'totals_breakdown' => $moneyBreakdown,
             'breakdown' => array_merge($details, $counters)
         ];
     }

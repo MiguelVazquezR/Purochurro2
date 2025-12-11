@@ -3,6 +3,13 @@ import { ref, watch } from 'vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { useToast } from 'primevue/usetoast';
+import InputText from 'primevue/inputtext';
+import InputNumber from 'primevue/inputnumber';
+import Textarea from 'primevue/textarea';
+import Button from 'primevue/button';
+import ToggleSwitch from 'primevue/toggleswitch';
+import SelectButton from 'primevue/selectbutton';
+import Select from 'primevue/select';
 
 const props = defineProps({
     bonus: Object,
@@ -55,6 +62,7 @@ const behaviors = [
 
 watch(hasRules, (val) => {
     if (val && !form.rule_config) {
+        // Valores por defecto al activar
         form.rule_config = {
             concept: 'late_minutes',
             operator: '<=',
@@ -125,6 +133,8 @@ const submit = () => {
                     
                     <!-- Columna Izquierda: Configuración -->
                     <div class="lg:col-span-1 flex flex-col gap-6">
+                        
+                        <!-- Panel de Estado y Tipo -->
                         <div class="bg-white rounded-3xl shadow-sm border border-surface-200 p-6 flex flex-col gap-5">
                             <span class="text-sm font-semibold text-surface-700">Configuración General</span>
                             
@@ -156,22 +166,27 @@ const submit = () => {
                             <div class="flex items-center justify-between">
                                 <div class="flex flex-col">
                                     <span class="text-sm font-bold text-surface-900 flex items-center gap-2">
-                                        <i class="pi pi-bolt" :class="hasRules ? 'text-orange-500' : 'text-surface-400'"></i>
-                                        Automatización
+                                        <i class="pi pi-list-check" :class="hasRules ? 'text-orange-500' : 'text-surface-400'"></i>
+                                        Aplicar reglas
                                     </span>
-                                    <span class="text-xs text-surface-500 mt-1">Calcular en nómina automáticamente</span>
+                                    <span class="text-xs text-surface-500 mt-1">
+                                        {{ hasRules ? 'Condiciones activas' : 'Otorgación directa' }}
+                                    </span>
                                 </div>
                                 <ToggleSwitch v-model="hasRules" />
                             </div>
                             
-                            <div v-if="hasRules" class="text-xs text-surface-500 bg-surface-50 p-3 rounded-lg border border-surface-100">
-                                <p>Este bono se aplicará automáticamente si el empleado cumple las condiciones configuradas.</p>
+                            <div class="text-xs text-surface-500 bg-surface-50 p-3 rounded-lg border border-surface-100">
+                                <p v-if="hasRules">Se evaluarán las condiciones definidas abajo para calcular el bono en la nómina.</p>
+                                <p v-else>Este bono se sumará automáticamente a la nómina de los empleados asignados, sin condiciones (Fijo).</p>
                             </div>
                         </div>
                     </div>
 
                     <!-- Columna Derecha: Detalles -->
                     <div class="lg:col-span-2 flex flex-col gap-6">
+                        
+                        <!-- Datos Básicos -->
                         <div class="bg-white rounded-3xl shadow-sm border border-surface-200 p-6">
                             <h2 class="text-lg font-bold text-surface-900 mb-6 flex items-center gap-2">
                                 <i class="pi pi-tag text-orange-500"></i> Detalles del Concepto

@@ -19,6 +19,7 @@ const props = defineProps({
     employee: Object,
     vacation_stats: Object,
     severance_data: Object, // Solo vendrá si es admin (ID 1)
+    shifts: { type: Array, default: () => [] } // Recibimos el catálogo de turnos
 });
 
 const confirm = useConfirm();
@@ -32,6 +33,27 @@ const formatCurrency = (value) => {
 const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' });
+};
+
+// --- Helpers para Plantilla de Horarios ---
+const weekDaysMap = [
+    { key: 'monday', label: 'Lunes' },
+    { key: 'tuesday', label: 'Martes' },
+    { key: 'wednesday', label: 'Miércoles' },
+    { key: 'thursday', label: 'Jueves' },
+    { key: 'friday', label: 'Viernes' },
+    { key: 'saturday', label: 'Sábado' },
+    { key: 'sunday', label: 'Domingo' },
+];
+
+const getShiftDetails = (shiftId) => {
+    if (!shiftId) return null;
+    return props.shifts.find(s => s.id == shiftId);
+};
+
+const formatTimeShort = (timeStr) => {
+    if (!timeStr) return '';
+    return timeStr.substring(0, 5);
 };
 
 // --- Lógica de Baja (Terminación) ---
@@ -218,8 +240,52 @@ const reactivateEmployee = () => {
 
                 <!-- COLUMNA DERECHA: Bonos, Vacaciones y Gestión -->
                 <div class="lg:col-span-2 flex flex-col gap-6">
+
+                    <!-- TARJETA: Semana Típica (Plantilla de Horarios) -->
+                    <div class="bg-white rounded-3xl shadow-sm border border-surface-200 overflow-hidden">
+                        <div class="p-5 border-b border-surface-100 bg-surface-50 flex justify-between items-center">
+                            <div>
+                                <h3 class="text-lg font-bold text-surface-900 flex items-center gap-2">
+                                    <i class="pi pi-calendar text-indigo-500"></i> Semana típica
+                                </h3>
+                                <p class="text-xs text-surface-500 mt-0.5">Plantilla utilizada para la generación automática de horarios.</p>
+                            </div>
+                            <Link :href="route('employees.edit', employee.id)">
+                                <Button icon="pi pi-pencil" text rounded severity="secondary" v-tooltip.top="'Modificar Plantilla'" />
+                            </Link>
+                        </div>
+                        <div class="p-5">
+                            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+                                <div 
+                                    v-for="day in weekDaysMap" 
+                                    :key="day.key" 
+                                    class="flex flex-col gap-1 p-2 rounded-xl border transition-colors"
+                                    :class="employee.default_schedule_template?.[day.key] ? 'bg-white border-surface-200' : 'bg-surface-50 border-dashed border-surface-200 opacity-70'"
+                                >
+                                    <span class="text-[10px] font-bold text-surface-400 uppercase tracking-wider text-center">{{ day.label.substring(0,3) }}</span>
+                                    
+                                    <div v-if="getShiftDetails(employee.default_schedule_template?.[day.key])" class="flex flex-col items-center">
+                                        <div 
+                                            class="w-5 h-1.5 rounded-full mb-1"
+                                            :style="{ backgroundColor: getShiftDetails(employee.default_schedule_template?.[day.key]).color }"
+                                        ></div>
+                                        <span class="text-xs font-bold text-surface-700 text-center leading-tight">
+                                            {{ getShiftDetails(employee.default_schedule_template?.[day.key]).name }}
+                                        </span>
+                                        <span class="text-[9px] text-surface-500 mt-0.5">
+                                            {{ formatTimeShort(getShiftDetails(employee.default_schedule_template?.[day.key]).start_time) }} - 
+                                            {{ formatTimeShort(getShiftDetails(employee.default_schedule_template?.[day.key]).end_time) }}
+                                        </span>
+                                    </div>
+                                    <div v-else class="flex flex-col items-center justify-center h-full py-1">
+                                        <span class="text-xs text-surface-400 italic">Descanso</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                     
-                    <!-- NUEVA: Tarjeta de Bonos Recurrentes -->
+                    <!-- Tarjeta de Bonos Recurrentes -->
                     <div class="bg-white rounded-3xl shadow-sm border border-surface-200 overflow-hidden">
                         <div class="p-6 border-b border-surface-100 bg-gradient-to-r from-blue-50 to-white flex justify-between items-center">
                             <div>

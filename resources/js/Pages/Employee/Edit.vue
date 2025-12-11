@@ -3,14 +3,17 @@ import { ref, watch } from 'vue';
 import { Link, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { useToast } from 'primevue/usetoast';
+import ScheduleTemplateInput from '@/Components/ScheduleTemplateInput.vue';
 
 const props = defineProps({
     employee: Object,
-    availableBonuses: Array
+    availableBonuses: Array,
+    shifts: { type: Array, default: () => [] } // Recibimos los turnos
 });
 
 const toast = useToast();
 const fileInput = ref(null);
+const maxBirthDate = new Date(); // Fecha máxima para evitar re-renders infinitos
 
 // Función auxiliar para parsear fechas "YYYY-MM-DD" a objetos Date sin desfase
 const parseDate = (dateString) => {
@@ -34,7 +37,17 @@ const form = useForm({
     hired_at: parseDate(props.employee.hired_at),
     base_salary: parseFloat(props.employee.base_salary),
     photo: null,
-    recurring_bonuses: initialBonuses
+    recurring_bonuses: initialBonuses,
+    // Cargamos la plantilla existente o una vacía por defecto
+    default_schedule_template: props.employee.default_schedule_template || {
+        monday: null, 
+        tuesday: null, 
+        wednesday: null, 
+        thursday: null, 
+        friday: null, 
+        saturday: null, 
+        sunday: null
+    }
 });
 
 // --- Lógica de Formateo de Teléfono ---
@@ -75,7 +88,7 @@ const triggerFileInput = () => {
 
 const removePhoto = () => {
     form.photo = null;
-    photoPreview.value = null; // Esto quitará la foto visualmente, aunque no la borra del server hasta guardar
+    photoPreview.value = null; // Esto quitará la foto visualmente
     if (fileInput.value) {
         fileInput.value.value = '';
     }
@@ -190,7 +203,7 @@ const submit = () => {
                                 <div class="flex flex-col gap-2">
                                     <label for="birth_date" class="font-medium text-surface-700">Fecha de
                                         nacimiento</label>
-                                    <DatePicker id="birth_date" v-model="form.birth_date" showIcon dateFormat="dd/mm/yy"
+                                    <DatePicker id="birth_date" v-model="form.birth_date" showIcon :maxDate="maxBirthDate" dateFormat="dd/mm/yy"
                                         class="w-full" :invalid="!!form.errors.birth_date" />
                                     <small v-if="form.errors.birth_date" class="text-red-500">{{ form.errors.birth_date
                                         }}</small>
@@ -265,6 +278,19 @@ const submit = () => {
                                         display="chip" class="w-full" filter />
                                 </div>
                             </div>
+                        </div>
+
+                        <!-- Configuración de Horario (Nueva Sección) -->
+                        <div class="bg-white rounded-3xl shadow-sm border border-surface-200 p-6">
+                            <h2 class="text-lg font-bold text-surface-900 mb-4 flex items-center gap-2">
+                                <i class="pi pi-calendar text-indigo-500"></i> Configuración de Horario
+                            </h2>
+                            
+                            <!-- Componente para la Plantilla de Turnos -->
+                            <ScheduleTemplateInput 
+                                v-model="form.default_schedule_template" 
+                                :shifts="shifts" 
+                            />
                         </div>
 
                     </div>

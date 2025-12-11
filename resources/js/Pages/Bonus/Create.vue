@@ -3,6 +3,13 @@ import { ref, watch } from 'vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { useToast } from 'primevue/usetoast';
+import InputText from 'primevue/inputtext';
+import InputNumber from 'primevue/inputnumber';
+import Textarea from 'primevue/textarea';
+import Button from 'primevue/button';
+import ToggleSwitch from 'primevue/toggleswitch';
+import SelectButton from 'primevue/selectbutton';
+import Select from 'primevue/select';
 
 const toast = useToast();
 
@@ -98,7 +105,7 @@ const submit = () => {
                         </Link>
                         <div>
                             <h1 class="text-2xl font-bold tracking-tight text-surface-900">Nuevo bono</h1>
-                            <p class="text-surface-500 text-sm mt-1 hidden md:block">Configura un incentivo manual o automático.</p>
+                            <p class="text-surface-500 text-sm mt-1 hidden md:block">Configura un incentivo recurrente.</p>
                         </div>
                     </div>
                     <div class="flex gap-2">
@@ -158,16 +165,19 @@ const submit = () => {
                             <div class="flex items-center justify-between">
                                 <div class="flex flex-col">
                                     <span class="text-sm font-bold text-surface-900 flex items-center gap-2">
-                                        <i class="pi pi-bolt" :class="hasRules ? 'text-orange-500' : 'text-surface-400'"></i>
-                                        Automatización
+                                        <i class="pi pi-list-check" :class="hasRules ? 'text-orange-500' : 'text-surface-400'"></i>
+                                        Aplicar reglas
                                     </span>
-                                    <span class="text-xs text-surface-500 mt-1">Calcular en nómina automáticamente</span>
+                                    <span class="text-xs text-surface-500 mt-1">
+                                        {{ hasRules ? 'Condiciones activas' : 'Otorgación directa' }}
+                                    </span>
                                 </div>
                                 <ToggleSwitch v-model="hasRules" />
                             </div>
                             
-                            <div v-if="hasRules" class="text-xs text-surface-500 bg-surface-50 p-3 rounded-lg border border-surface-100">
-                                <p>Este bono se aplicará automáticamente si el empleado cumple las condiciones configuradas.</p>
+                            <div class="text-xs text-surface-500 bg-surface-50 p-3 rounded-lg border border-surface-100">
+                                <p v-if="hasRules">Se evaluarán las condiciones definidas abajo para calcular el bono en la nómina.</p>
+                                <p v-else>Este bono se sumará automáticamente a la nómina de los empleados asignados, sin condiciones (Fijo).</p>
                             </div>
                         </div>
                     </div>

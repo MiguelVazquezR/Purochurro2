@@ -53,6 +53,12 @@ class Employee extends Model implements HasMedia
         return $this->belongsTo(User::class);
     }
 
+    // NUEVA RELACIÓN: Horarios de Trabajo (Historial completo)
+    public function workSchedules()
+    {
+        return $this->hasMany(WorkSchedule::class);
+    }
+
     // Historial de bonos pagados (Uno a uno)
     public function bonuses()
     {
@@ -61,7 +67,7 @@ class Employee extends Model implements HasMedia
             ->withTimestamps();
     }
 
-    // NUEVO: Bonos Recurrentes (Configuración)
+    // Bonos Recurrentes (Configuración)
     public function recurringBonuses()
     {
         return $this->belongsToMany(Bonus::class, 'recurring_bonuses')

@@ -6,6 +6,15 @@ import { FilterMatchMode } from '@primevue/core/api';
 import { useConfirm } from "primevue/useconfirm";
 import { useToast } from "primevue/usetoast";
 
+// Componentes PrimeVue
+import Button from 'primevue/button';
+import DataTable from 'primevue/datatable';
+import Column from 'primevue/column';
+import Tag from 'primevue/tag';
+import IconField from 'primevue/iconfield';
+import InputIcon from 'primevue/inputicon';
+import InputText from 'primevue/inputtext';
+
 const props = defineProps({
     bonuses: Array,
 });
@@ -38,7 +47,7 @@ const formatAmount = (amount, type) => {
 
 // Helper para mostrar resumen de la regla
 const getRuleSummary = (rule) => {
-    if (!rule) return 'Asignación manual';
+    if (!rule) return 'Se otorga siempre';
     
     const concept = conceptMap[rule.concept] || rule.concept;
     return `${concept} ${rule.operator} ${rule.value}`;
@@ -72,7 +81,7 @@ const deleteBonus = (bonus) => {
             <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 class="text-3xl font-bold tracking-tight text-surface-900">Bonos e incentivos</h1>
-                    <p class="text-surface-500 text-sm mt-1">Administra los tipos de bonos y sus reglas de automatización.</p>
+                    <p class="text-surface-500 text-sm mt-1">Administra los tipos de bonos y sus reglas de aplicación automática.</p>
                 </div>
                 
                 <div class="flex gap-3">
@@ -141,19 +150,20 @@ const deleteBonus = (bonus) => {
                         </template>
                     </Column>
 
-                    <!-- Columna: Regla (Nueva) -->
-                    <Column header="Regla de aplicación" class="w-[200px]">
+                    <!-- Columna: Regla (Actualizada) -->
+                    <Column header="Aplicación" class="w-[200px]">
                         <template #body="slotProps">
                             <div class="flex items-center gap-2">
-                                <i 
-                                    class="pi" 
-                                    :class="slotProps.data.rule_config ? 'pi-bolt text-orange-500' : 'pi-user-edit text-blue-400'"
-                                ></i>
+                                <div class="w-8 h-8 rounded-full flex items-center justify-center shrink-0" 
+                                     :class="slotProps.data.rule_config ? 'bg-purple-50 text-purple-600' : 'bg-blue-50 text-blue-600'">
+                                    <i class="pi" :class="slotProps.data.rule_config ? 'pi-list-check' : 'pi-check-circle'"></i>
+                                </div>
                                 <div class="flex flex-col">
-                                    <span class="text-sm font-medium text-surface-700">
-                                        {{ slotProps.data.rule_config ? 'Automático' : 'Manual' }}
+                                    <span class="text-sm font-bold" 
+                                          :class="slotProps.data.rule_config ? 'text-purple-700' : 'text-blue-700'">
+                                        {{ slotProps.data.rule_config ? 'Condicionado' : 'Directo' }}
                                     </span>
-                                    <span v-if="slotProps.data.rule_config" class="text-xs text-surface-500 bg-surface-100 px-1.5 py-0.5 rounded">
+                                    <span class="text-[10px] text-surface-500 leading-tight">
                                         {{ getRuleSummary(slotProps.data.rule_config) }}
                                     </span>
                                 </div>
@@ -162,7 +172,7 @@ const deleteBonus = (bonus) => {
                     </Column>
 
                     <!-- Columna: Tipo -->
-                    <Column field="type" header="Tipo" sortable class="w-[120px]">
+                    <Column field="type" header="Tipo" sortable class="w-[100px]">
                         <template #body="slotProps">
                             <Tag 
                                 :value="slotProps.data.type === 'fixed' ? 'Fijo' : '%'" 
@@ -176,12 +186,14 @@ const deleteBonus = (bonus) => {
                     <!-- Columna: Monto -->
                     <Column field="amount" header="Valor" sortable class="w-[120px] text-right">
                         <template #body="slotProps">
-                            <span class="text-surface-900 font-bold text-base">
-                                {{ formatAmount(slotProps.data.amount, slotProps.data.type) }}
-                            </span>
-                            <span v-if="slotProps.data.rule_config?.behavior === 'pay_per_unit'" class="block text-[10px] text-surface-400">
-                                por unidad
-                            </span>
+                            <div class="flex flex-col items-end">
+                                <span class="text-surface-900 font-bold text-base">
+                                    {{ formatAmount(slotProps.data.amount, slotProps.data.type) }}
+                                </span>
+                                <span v-if="slotProps.data.rule_config?.behavior === 'pay_per_unit'" class="text-[9px] font-bold text-orange-600 bg-orange-50 px-1 rounded">
+                                    por unidad
+                                </span>
+                            </div>
                         </template>
                     </Column>
 

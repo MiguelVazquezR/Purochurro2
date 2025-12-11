@@ -14,32 +14,36 @@ class ScheduleController extends Controller
 {
     /**
      * Muestra el calendario de horarios.
-     * Recibe opcionalmente 'start_date' para navegar entre semanas.
      */
     public function index(Request $request)
     {
-        // Por defecto, iniciamos el lunes de la semana actual
+        // 1. Definir rango de fechas (Semana Domingo - Sábado)
+        // Usamos Carbon::SUNDAY y Carbon::SATURDAY explícitamente para forzar este comportamiento
+        // independientemente de la configuración regional del servidor.
         $startDate = $request->input('start_date') 
-            ? Carbon::parse($request->input('start_date'))->startOfWeek() 
-            : Carbon::now()->startOfWeek();
+            ? Carbon::parse($request->input('start_date'))->startOfWeek(Carbon::SUNDAY) 
+            : Carbon::now()->startOfWeek(Carbon::SUNDAY);
 
-        $endDate = $startDate->copy()->endOfWeek();
+        $endDate = $startDate->copy()->endOfWeek(Carbon::SATURDAY);
 
-        // Obtenemos todos los turnos activos para el dropdown
+        // 2. Cargar Catálogo de Turnos (para el selector en la celda)
         $shifts = Shift::where('is_active', true)->get();
 
-        // Cargamos empleados con sus horarios SOLO de esta semana
-        $employees = Employee::with(['media', 'user'])
+        // 3. Cargar Empleados + Horarios (OPTIMIZADO)
+        $employees = Employee::with([
+                'media', 
+                'user',
+                // Cargamos solo los horarios dentro del rango de fechas de esta semana
+                'workSchedules' => function($query) use ($startDate, $endDate) {
+                    $query->whereBetween('date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')])
+                          ->with('shift');
+                }
+            ])
             ->where('is_active', true)
             ->get()
-            ->map(function ($employee) use ($startDate, $endDate) {
-                // Buscamos los horarios ya creados en DB para este rango
-                $schedules = WorkSchedule::where('employee_id', $employee->id)
-                    ->whereBetween('date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')])
-                    ->get()
-                    ->keyBy(fn($item) => $item->date->format('Y-m-d'));
-
-                $employee->week_schedules = $schedules;
+            ->map(function ($employee) {
+                // 4. Transformar para el Frontend
+                $employee->week_schedules = $employee->workSchedules->keyBy(fn($schedule) => $schedule->date->format('Y-m-d'));
                 return $employee;
             });
 
@@ -52,7 +56,7 @@ class ScheduleController extends Controller
     }
 
     /**
-     * Guarda o actualiza un horario específico de un día.
+     * Guarda o actualiza un horario específico de un día (Celda individual).
      */
     public function store(Request $request)
     {
@@ -70,17 +74,16 @@ class ScheduleController extends Controller
             ],
             [
                 'shift_id' => $validated['shift_id'],
-                'notes' => $request->notes,
-                'is_published' => true, // O false si manejas borradores
+                'notes' => $request->notes ?? null,
+                'is_published' => true, 
             ]
         );
 
-        return back()->with('success', 'Horario actualizado.');
+        return back()->with('success', 'Horario actualizado correctamente.');
     }
 
     /**
-     * Generación Masiva: Aplica el 'default_schedule_template' a la semana seleccionada
-     * para todos los empleados (o uno específico).
+     * Generación Masiva: Aplica la plantilla predeterminada a la semana actual.
      */
     public function generateWeek(Request $request)
     {
@@ -88,7 +91,8 @@ class ScheduleController extends Controller
             'start_date' => 'required|date',
         ]);
 
-        $startDate = Carbon::parse($request->start_date)->startOfWeek();
+        // Aseguramos que la generación también comience en Domingo
+        $startDate = Carbon::parse($request->start_date)->startOfWeek(Carbon::SUNDAY);
         
         DB::transaction(function () use ($startDate) {
             $employees = Employee::where('is_active', true)->get();
@@ -96,19 +100,19 @@ class ScheduleController extends Controller
             foreach ($employees as $employee) {
                 $template = $employee->default_schedule_template;
 
-                // Si no tiene plantilla, saltamos (o asignamos descanso por defecto)
-                if (!$template) continue;
+                // Si no tiene plantilla configurada, saltamos
+                if (empty($template)) continue;
 
-                // Iteramos 7 días (0 = Lunes, 6 = Domingo en Carbon startOfWeek)
+                // Iteramos los 7 días de la semana
                 for ($i = 0; $i < 7; $i++) {
                     $currentDate = $startDate->copy()->addDays($i);
-                    // Obtenemos el nombre del día en minúsculas (monday, tuesday...)
-                    $dayName = strtolower($currentDate->format('l'));
+                    // 'l' devuelve el nombre completo en inglés: Sunday, Monday...
+                    $dayName = strtolower($currentDate->format('l')); 
 
-                    // Verificamos si hay turno asignado en la plantilla para este día
-                    // La plantilla debe guardar IDs de turnos: { "monday": 1, "tuesday": 2, "wednesday": null }
+                    // Obtenemos el ID del turno configurado para ese día
                     $shiftId = $template[$dayName] ?? null;
 
+                    // Creamos o actualizamos el horario
                     WorkSchedule::updateOrCreate(
                         [
                             'employee_id' => $employee->id,
@@ -123,6 +127,6 @@ class ScheduleController extends Controller
             }
         });
 
-        return back()->with('success', 'Semana generada automáticamente basada en plantillas.');
+        return back()->with('success', 'Semana generada basada en las plantillas de empleados.');
     }
 }

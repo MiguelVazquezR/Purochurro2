@@ -143,63 +143,24 @@ class PayrollController extends Controller
         $start = Carbon::parse($startDate)->startOfWeek(Carbon::SUNDAY);
         $end = $start->copy()->endOfWeek(Carbon::SATURDAY);
 
-        $months = array_unique([$start->month, $end->month]);
-        $holidaysCollection = Holiday::query()
-            ->whereIn(DB::raw('MONTH(date)'), $months)
-            ->get();
-            
-        $holidaysLookup = $holidaysCollection->keyBy(fn($h) => Carbon::parse($h->date)->format('m-d'));
-        
-        $holidaysPayload = $holidaysCollection->map(fn($holiday) => [
-            'id' => $holiday->id,
-            'name' => $holiday->name,
-            'date' => $holiday->date,
-            'pay_multiplier' => $holiday->pay_multiplier,
-            'mandatory' => $holiday->mandatory ?? true,
-        ]);
-
-        // Cargar bonos recurrentes para info, aunque el cálculo fuerte se hace en Vue para vista previa
-        $employees = Employee::with(['recurringBonuses']) 
+        $employees = Employee::with(['recurringBonuses', 'bonuses']) 
             ->where('is_active', true)
             ->orderBy('first_name')
             ->get();
 
-        $payrollData = $employees->map(function ($employee) use ($start, $end, $holidaysLookup) {
-            $days = [];
-            $period = $start->copy();
+        $payrollService = new PayrollService();
+        $receiptsData = [];
 
-            while ($period <= $end) {
-                $dateStr = $period->format('Y-m-d');
-                $monthDay = $period->format('m-d');
-                
-                $attendance = Attendance::where('employee_id', $employee->id)->where('date', $dateStr)->first();
-                $schedule = WorkSchedule::where('employee_id', $employee->id)->where('date', $dateStr)->first();
-                $holiday = $holidaysLookup->get($monthDay);
-                
-                $incident = $attendance ? $attendance->incident_type : null;
-                
-                $days[] = [
-                    'date' => $dateStr,
-                    'incident_type' => $incident?->value,
-                    'check_in' => $attendance?->check_in,
-                    'check_out' => $attendance?->check_out,
-                    'is_rest_day' => (!$schedule || !$schedule->shift_id),
-                    'holiday_data' => $holiday ? ['multiplier' => $holiday->pay_multiplier ?? 2.0] : null,
-                ];
-                $period->addDay();
-            }
-
-            return [
-                'employee' => $employee,
-                'days' => $days,
-            ];
-        });
+        foreach ($employees as $employee) {
+            // El servicio ahora retorna 'totals_breakdown' y 'breakdown' detallado con categorías de festivos
+            $calculation = $payrollService->calculate($employee, $start, $end);
+            $receiptsData[] = $calculation;
+        }
 
         return Inertia::render('Payroll/Receipts', [
             'startDate' => $start->format('Y-m-d'),
             'endDate' => $end->format('Y-m-d'),
-            'payrollData' => $payrollData,
-            'holidays' => $holidaysPayload,
+            'payrollData' => $receiptsData, 
         ]);
     }
 
@@ -276,8 +237,6 @@ class PayrollController extends Controller
 
         $isClosed = PayrollReceipt::where('start_date', $start->format('Y-m-d'))->exists();
 
-        // CORRECCIÓN: Quitamos 'bonuses' para no cargar historial manual
-        // Solo cargamos 'recurringBonuses' que es la configuración activa
         $employees = Employee::with(['recurringBonuses'])
             ->where('is_active', true)
             ->get();
@@ -334,6 +293,7 @@ class PayrollController extends Controller
                     'total_pay' => $calc['total_pay'],
                     'days_worked' => $calc['days_worked'],
                     'total_bonuses' => $calc['total_bonuses'],
+                    // Ahora breakdown_data contiene 'totals_breakdown' y los detalles con 'category'
                     'breakdown_data' => $calc['breakdown'], 
                     'paid_at' => $request->mark_as_paid ? now() : null,
                 ]);

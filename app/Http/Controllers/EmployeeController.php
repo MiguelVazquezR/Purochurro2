@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Bonus;
 use App\Models\Employee;
+use App\Models\Shift;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -34,7 +35,8 @@ class EmployeeController extends Controller
     {
         return Inertia::render('Employee/Create', [
             // Enviamos los bonos activos para el selector
-            'availableBonuses' => Bonus::where('is_active', true)->orderBy('name')->get()
+            'availableBonuses' => Bonus::where('is_active', true)->orderBy('name')->get(),
+            'shifts' => Shift::where('is_active', true)->get()
         ]);
     }
 
@@ -106,7 +108,8 @@ class EmployeeController extends Controller
         return Inertia::render('Employee/Show', [
             'employee' => $employee,
             'vacation_stats' => $vacationStats,
-            'severance_data' => $severanceData
+            'severance_data' => $severanceData,
+            'shifts' => Shift::where('is_active', true)->get()
         ]);
     }
 
@@ -116,7 +119,8 @@ class EmployeeController extends Controller
         
         return Inertia::render('Employee/Edit', [
             'employee' => $employee,
-            'availableBonuses' => Bonus::where('is_active', true)->orderBy('name')->get()
+            'availableBonuses' => Bonus::where('is_active', true)->orderBy('name')->get(),
+            'shifts' => Shift::where('is_active', true)->get()
         ]);
     }
 

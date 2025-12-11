@@ -3,9 +3,11 @@ import { ref, watch } from 'vue';
 import { Link, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { useToast } from 'primevue/usetoast';
+import ScheduleTemplateInput from '@/Components/ScheduleTemplateInput.vue';
 
 const props = defineProps({
-    availableBonuses: { type: Array, default: () => [] }
+    availableBonuses: { type: Array, default: () => [] },
+    shifts: { type: Array, default: () => [] } // Recibimos los turnos
 });
 
 const toast = useToast();
@@ -21,7 +23,17 @@ const form = useForm({
     hired_at: new Date(),
     base_salary: null,
     photo: null,
-    recurring_bonuses: []
+    recurring_bonuses: [],
+    // Inicializamos la plantilla vacía
+    default_schedule_template: {
+        monday: null, 
+        tuesday: null, 
+        wednesday: null, 
+        thursday: null, 
+        friday: null, 
+        saturday: null, 
+        sunday: null
+    }
 });
 
 // --- Lógica de Formateo de Teléfono ---
@@ -260,6 +272,19 @@ const submit = () => {
                                         display="chip" class="w-full" filter />
                                 </div>
                             </div>
+                        </div>
+
+                        <!-- Configuración de Horario (Nueva Sección) -->
+                        <div class="bg-white rounded-3xl shadow-sm border border-surface-200 p-6">
+                            <h2 class="text-lg font-bold text-surface-900 mb-4 flex items-center gap-2">
+                                <i class="pi pi-calendar text-indigo-500"></i> Configuración de Horario
+                            </h2>
+                            
+                            <!-- Componente para la Plantilla de Turnos -->
+                            <ScheduleTemplateInput 
+                                v-model="form.default_schedule_template" 
+                                :shifts="shifts" 
+                            />
                         </div>
 
                     </div>
