@@ -225,8 +225,9 @@ const getCellClass = (day) => {
 
                 <!-- Acciones Extra -->
                 <div class="flex gap-2 w-full md:w-auto justify-end">
-                    <Button label="Recibos" icon="pi pi-file-pdf" severity="secondary" outlined rounded disabled
-                        v-tooltip.top="'Descarga masiva próximamente'" />
+                     <a :href="route('payroll.receipts', startDate)" target="_blank" rel="noopener noreferrer">
+                        <Button label="Recibos" icon="pi pi-print" severity="secondary" outlined rounded v-tooltip.top="'Imprimir recibos de esta semana'" />
+                    </a>
                     <Link :href="route('payroll.settlement', startDate)">
                         <Button label="Pre-Nómina" icon="pi pi-calculator"
                             class="!bg-orange-600 !border-orange-600 hover:!bg-orange-700 shadow-md shadow-orange-200"

@@ -306,6 +306,7 @@ const submit = () => {
                                         <span class="font-bold block mb-1">Resumen de la regla:</span>
                                         <p>
                                             Se pagará 
+                                            <strong class="mr-1">${{ form.amount }}</strong>
                                             <strong class="text-blue-900">{{ form.rule_config.behavior === 'fixed_amount' ? 'el monto fijo' : 'por cada unidad' }}</strong>
                                             cuando 
                                             <strong>{{ concepts.find(c => c.value === form.rule_config.concept)?.label }}</strong>

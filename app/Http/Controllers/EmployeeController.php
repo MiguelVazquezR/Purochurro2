@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Bonus;
 use App\Models\Employee;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -31,7 +32,10 @@ class EmployeeController extends Controller
 
     public function create()
     {
-        return Inertia::render('Employee/Create');
+        return Inertia::render('Employee/Create', [
+            // Enviamos los bonos activos para el selector
+            'availableBonuses' => Bonus::where('is_active', true)->orderBy('name')->get()
+        ]);
     }
 
     public function store(Request $request)
@@ -47,6 +51,9 @@ class EmployeeController extends Controller
             'base_salary' => 'required|numeric|min:0',
             'photo' => 'nullable|image|max:10240',
             'default_schedule_template' => 'nullable|array',
+            // Validación para bonos recurrentes
+            'recurring_bonuses' => 'nullable|array',
+            'recurring_bonuses.*' => 'exists:bonuses,id',
         ]);
 
         DB::beginTransaction();
@@ -66,6 +73,11 @@ class EmployeeController extends Controller
                 $employee->addMediaFromRequest('photo')->toMediaCollection('avatar');
             }
 
+            // Guardar Bonos Recurrentes
+            if (!empty($validated['recurring_bonuses'])) {
+                $employee->recurringBonuses()->sync($validated['recurring_bonuses']);
+            }
+
             DB::commit();
             return redirect()->route('employees.index')->with('success', 'Empleado creado correctamente.');
 
@@ -78,18 +90,15 @@ class EmployeeController extends Controller
 
     public function show(Employee $employee)
     {
-        $employee->load(['media', 'user', 'vacationLogs']);
+        $employee->load(['media', 'user', 'vacationLogs', 'recurringBonuses']); // Cargar bonos
 
-        // Stats de Vacaciones
         $vacationStats = [
             'years_service' => number_format($employee->years_of_service, 1),
             'total_days' => $employee->vacation_days_entitled,
-            'available_days' => $employee->vacation_balance ?? $employee->vacation_days_entitled, // Usamos balance si existe
+            'available_days' => $employee->vacation_balance ?? $employee->vacation_days_entitled,
         ];
 
         $severanceData = null;
-
-        // Solo Admin (ID 1) ve el cálculo
         if (auth()->id() === 1) {
             $severanceData = $this->calculateSeveranceMexico($employee);
         }
@@ -103,9 +112,11 @@ class EmployeeController extends Controller
 
     public function edit(Employee $employee)
     {
-        $employee->load('media');
+        $employee->load(['media', 'recurringBonuses']); // Cargar bonos actuales
+        
         return Inertia::render('Employee/Edit', [
-            'employee' => $employee
+            'employee' => $employee,
+            'availableBonuses' => Bonus::where('is_active', true)->orderBy('name')->get()
         ]);
     }
 
@@ -121,6 +132,9 @@ class EmployeeController extends Controller
             'hired_at' => 'required|date',
             'default_schedule_template' => 'nullable|array',
             'email' => 'required|email|unique:employees,email,' . $employee->id,
+            // Validación Bonos
+            'recurring_bonuses' => 'nullable|array',
+            'recurring_bonuses.*' => 'exists:bonuses,id',
         ]);
 
         DB::beginTransaction();
@@ -138,6 +152,11 @@ class EmployeeController extends Controller
                 $employee->clearMediaCollection('avatar'); 
                 $employee->addMediaFromRequest('photo')->toMediaCollection('avatar');
             }
+
+            // Sincronizar Bonos Recurrentes
+            if (isset($validated['recurring_bonuses'])) {
+                $employee->recurringBonuses()->sync($validated['recurring_bonuses']);
+            }
             
             DB::commit();
             return redirect()->route('employees.index')->with('success', 'Empleado actualizado.');
@@ -147,10 +166,8 @@ class EmployeeController extends Controller
         }
     }
 
-    // Método para DAR DE BAJA (Inactivar + Datos de Salida)
     public function terminate(Request $request, Employee $employee)
     {
-        // Solo admin (ID 1)
         if (auth()->id() !== 1) abort(403);
 
         $validated = $request->validate([
@@ -166,12 +183,6 @@ class EmployeeController extends Controller
             'termination_notes' => $validated['notes']
         ]);
 
-        // Opcional: Bloquear acceso al sistema
-        if ($employee->user) {
-            // Podrías borrarlo o banearlo. Aquí solo ejemplo:
-            // $employee->user->delete(); 
-        }
-
         return back()->with('success', 'Empleado dado de baja correctamente.');
     }
 
@@ -184,38 +195,24 @@ class EmployeeController extends Controller
         return redirect()->back()->with('success', 'Empleado eliminado.');
     }
 
-    /**
-     * Calculadora de Finiquito y Liquidación (Ley México)
-     */
     private function calculateSeveranceMexico(Employee $employee)
     {
-        // Asumimos que base_salary es el salario diario para el cálculo
         $dailySalary = $employee->base_salary; 
         $years = $employee->years_of_service;
         
-        // 1. Aguinaldo Proporcional (15 días por año)
         $daysWorkedThisYear = $employee->hired_at->diffInDays(now()) % 365; 
         $proportionalAguinaldo = ($daysWorkedThisYear / 365) * 15 * $dailySalary;
 
-        // 2. Vacaciones Proporcionales + Prima (25%)
         $vacationDays = $employee->vacation_days_entitled; 
         $proportionalVacations = ($daysWorkedThisYear / 365) * $vacationDays * $dailySalary;
         $vacationPremium = $proportionalVacations * 0.25;
 
-        // FINIQUITO BASE
         $settlement = $proportionalAguinaldo + $proportionalVacations + $vacationPremium;
 
-        // LIQUIDACIÓN (Despido Injustificado)
-        $severance = 0;
-        $compensation20Days = 0;
-        $seniorityPremium = 0;
+        $severance = 90 * $dailySalary;
+        $compensation20Days = 20 * $years * $dailySalary;
 
-        // Simulamos cálculo completo para el admin
-        $severance = 90 * $dailySalary; // 3 meses
-        $compensation20Days = 20 * $years * $dailySalary; // 20 días por año
-
-        // Prima Antigüedad (12 días por año, tope 2x Salario Mínimo)
-        $minWageCap = 540; // Tope aprox 2025
+        $minWageCap = 540;
         $salaryForPremium = min($dailySalary, $minWageCap);
         $seniorityPremium = 12 * $years * $salaryForPremium;
 

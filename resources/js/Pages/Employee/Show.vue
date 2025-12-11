@@ -5,6 +5,15 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import { useConfirm } from "primevue/useconfirm";
 import { useToast } from "primevue/usetoast";
 import Image from 'primevue/image';
+// Aseguramos importaciones de componentes usados
+import Button from 'primevue/button';
+import Tag from 'primevue/tag';
+import DataTable from 'primevue/datatable';
+import Column from 'primevue/column';
+import Dialog from 'primevue/dialog';
+import Select from 'primevue/select';
+import DatePicker from 'primevue/datepicker';
+import Textarea from 'primevue/textarea';
 
 const props = defineProps({
     employee: Object,
@@ -149,7 +158,7 @@ const reactivateEmployee = () => {
                                 class="w-full h-full"
                             />
                             <div v-else class="w-full h-full bg-orange-50 flex items-center justify-center text-orange-300">
-                                <i class="pi pi-user text-6xl"></i>
+                                <i class="pi pi-user !text-6xl"></i>
                             </div>
                         </div>
                         <h2 class="text-xl font-bold text-surface-900 text-center">{{ employee.full_name }}</h2>
@@ -179,7 +188,7 @@ const reactivateEmployee = () => {
                         <div class="flex items-center gap-3">
                             <div class="w-8 h-8 rounded-full bg-green-50 flex items-center justify-center text-green-500"><i class="pi pi-money-bill"></i></div>
                             <div>
-                                <p class="text-xs text-surface-500">Sueldo Base</p>
+                                <p class="text-xs text-surface-500">Sueldo Base (Turno)</p>
                                 <p class="text-sm font-medium text-surface-900">{{ formatCurrency(employee.base_salary) }}</p>
                             </div>
                         </div>
@@ -207,9 +216,49 @@ const reactivateEmployee = () => {
                     </div>
                 </div>
 
-                <!-- COLUMNA DERECHA: Vacaciones y Gestión -->
+                <!-- COLUMNA DERECHA: Bonos, Vacaciones y Gestión -->
                 <div class="lg:col-span-2 flex flex-col gap-6">
                     
+                    <!-- NUEVA: Tarjeta de Bonos Recurrentes -->
+                    <div class="bg-white rounded-3xl shadow-sm border border-surface-200 overflow-hidden">
+                        <div class="p-6 border-b border-surface-100 bg-gradient-to-r from-blue-50 to-white flex justify-between items-center">
+                            <div>
+                                <h3 class="text-lg font-bold text-surface-900 flex items-center gap-2">
+                                    <i class="pi pi-gift text-blue-500"></i> Bonos Activos
+                                </h3>
+                                <p class="text-xs text-surface-500 mt-1">Se aplican automáticamente en cada nómina</p>
+                            </div>
+                        </div>
+                        <div class="p-4">
+                            <div v-if="employee.recurring_bonuses && employee.recurring_bonuses.length > 0" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div v-for="bonus in employee.recurring_bonuses" :key="bonus.id" class="flex items-center justify-between p-3 bg-surface-50 rounded-xl border border-surface-100 hover:border-blue-200 transition-colors">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 rounded-full bg-white flex items-center justify-center text-blue-600 shadow-sm border border-surface-100">
+                                            <i class="pi pi-star-fill text-lg"></i>
+                                        </div>
+                                        <div>
+                                            <p class="text-sm font-bold text-surface-900">{{ bonus.name }}</p>
+                                            <p class="text-[10px] text-surface-500 uppercase tracking-wider">{{ bonus.pivot.is_active ? 'Automático' : 'Pausado' }}</p>
+                                        </div>
+                                    </div>
+                                    <div class="text-right">
+                                        <span class="block text-sm font-black text-surface-900">{{ formatCurrency(bonus.pivot?.amount || bonus.amount) }}</span>
+                                        <span class="text-[10px] text-surface-400">por periodo</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div v-else class="text-center py-8">
+                                <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-surface-50 text-surface-400 mb-2">
+                                    <i class="pi pi-ticket text-xl"></i>
+                                </div>
+                                <p class="text-sm text-surface-500">No tiene bonos recurrentes asignados.</p>
+                                <Link :href="route('employees.edit', employee.id)" class="text-xs text-blue-600 font-bold hover:underline mt-1 block">
+                                    Asignar bonos en Editar
+                                </Link>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Tarjeta de Vacaciones -->
                     <div class="bg-white rounded-3xl shadow-sm border border-surface-200 overflow-hidden">
                         <div class="p-6 border-b border-surface-100 bg-gradient-to-r from-orange-50 to-white flex justify-between items-center">
@@ -237,7 +286,7 @@ const reactivateEmployee = () => {
                                     <template #body="slotProps">
                                         <Tag 
                                             :value="slotProps.data.type === 'usage' ? 'Uso' : (slotProps.data.type === 'accrual' ? 'Acumulación' : 'Ajuste')" 
-                                            :severity="slotProps.data.type === 'usage' ? 'warning' : (slotProps.data.type === 'accrual' ? 'success' : 'info')"
+                                            :severity="slotProps.data.type === 'usage' ? 'warn' : (slotProps.data.type === 'accrual' ? 'success' : 'info')"
                                             class="!text-[10px] !px-2"
                                         />
                                     </template>

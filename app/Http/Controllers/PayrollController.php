@@ -46,25 +46,21 @@ class PayrollController extends Controller
         $start = Carbon::parse($startDate)->startOfWeek(Carbon::SUNDAY);
         $end = $start->copy()->endOfWeek(Carbon::SATURDAY);
 
-        // --- Lógica de Festivos Recurrentes (Día/Mes) ---
         $months = array_unique([$start->month, $end->month]);
 
-        // Buscamos festivos que coincidan en MES, ignorando el año
         $holidaysCollection = Holiday::query()
             ->whereIn(DB::raw('MONTH(date)'), $months)
             ->get();
 
-        // Mapa para búsqueda rápida (Clave: 'MM-DD')
         $holidaysLookup = $holidaysCollection->keyBy(function ($h) {
             return Carbon::parse($h->date)->format('m-d');
         });
 
-        // Payload para Vue (necesario para tu Show.vue)
         $holidaysPayload = $holidaysCollection->map(function ($holiday) {
             return [
                 'id' => $holiday->id,
                 'name' => $holiday->name,
-                'date' => $holiday->date, // Vue usará esto para matching visual
+                'date' => $holiday->date, 
                 'pay_multiplier' => $holiday->pay_multiplier,
                 'mandatory' => $holiday->mandatory ?? true,
             ];
@@ -93,8 +89,6 @@ class PayrollController extends Controller
                     ->first();
 
                 $incident = $attendance ? $attendance->incident_type : null;
-                
-                // Buscamos festivo por día/mes
                 $holiday = $holidaysLookup->get($monthDay); 
                 
                 if (!$attendance) {
@@ -113,8 +107,6 @@ class PayrollController extends Controller
                     'attendance_id' => $attendance?->id,
                     'incident_type' => $incident?->value,
                     'incident_label' => $incidentLabel,
-                    // Mantenemos formato 24h (H:i) para enviar al front. 
-                    // El front se encargará de mostrarlo como 12h.
                     'check_in' => $attendance?->check_in ? Carbon::parse($attendance->check_in)->format('H:i') : null,
                     'check_out' => $attendance?->check_out ? Carbon::parse($attendance->check_out)->format('H:i') : null,
                     'is_late' => $attendance?->is_late ?? false,
@@ -146,21 +138,85 @@ class PayrollController extends Controller
         ]);
     }
 
+    public function receipts(Request $request, string $startDate)
+    {
+        $start = Carbon::parse($startDate)->startOfWeek(Carbon::SUNDAY);
+        $end = $start->copy()->endOfWeek(Carbon::SATURDAY);
+
+        $months = array_unique([$start->month, $end->month]);
+        $holidaysCollection = Holiday::query()
+            ->whereIn(DB::raw('MONTH(date)'), $months)
+            ->get();
+            
+        $holidaysLookup = $holidaysCollection->keyBy(fn($h) => Carbon::parse($h->date)->format('m-d'));
+        
+        $holidaysPayload = $holidaysCollection->map(fn($holiday) => [
+            'id' => $holiday->id,
+            'name' => $holiday->name,
+            'date' => $holiday->date,
+            'pay_multiplier' => $holiday->pay_multiplier,
+            'mandatory' => $holiday->mandatory ?? true,
+        ]);
+
+        // Cargar bonos recurrentes para info, aunque el cálculo fuerte se hace en Vue para vista previa
+        $employees = Employee::with(['recurringBonuses']) 
+            ->where('is_active', true)
+            ->orderBy('first_name')
+            ->get();
+
+        $payrollData = $employees->map(function ($employee) use ($start, $end, $holidaysLookup) {
+            $days = [];
+            $period = $start->copy();
+
+            while ($period <= $end) {
+                $dateStr = $period->format('Y-m-d');
+                $monthDay = $period->format('m-d');
+                
+                $attendance = Attendance::where('employee_id', $employee->id)->where('date', $dateStr)->first();
+                $schedule = WorkSchedule::where('employee_id', $employee->id)->where('date', $dateStr)->first();
+                $holiday = $holidaysLookup->get($monthDay);
+                
+                $incident = $attendance ? $attendance->incident_type : null;
+                
+                $days[] = [
+                    'date' => $dateStr,
+                    'incident_type' => $incident?->value,
+                    'check_in' => $attendance?->check_in,
+                    'check_out' => $attendance?->check_out,
+                    'is_rest_day' => (!$schedule || !$schedule->shift_id),
+                    'holiday_data' => $holiday ? ['multiplier' => $holiday->pay_multiplier ?? 2.0] : null,
+                ];
+                $period->addDay();
+            }
+
+            return [
+                'employee' => $employee,
+                'days' => $days,
+            ];
+        });
+
+        return Inertia::render('Payroll/Receipts', [
+            'startDate' => $start->format('Y-m-d'),
+            'endDate' => $end->format('Y-m-d'),
+            'payrollData' => $payrollData,
+            'holidays' => $holidaysPayload,
+        ]);
+    }
+
     public function updateDay(Request $request)
     {
         $validated = $request->validate([
             'employee_id' => 'required|exists:employees,id',
             'date' => 'required|date',
             'incident_type' => ['required', Rule::enum(IncidentType::class)],
-            'check_in' => 'nullable|date_format:H:i', // Espera formato 24h
-            'check_out' => 'nullable|date_format:H:i', // Espera formato 24h
+            'check_in' => 'nullable|date_format:H:i', 
+            'check_out' => 'nullable|date_format:H:i', 
             'late_ignored' => 'boolean',
             'admin_notes' => 'nullable|string'
         ]);
 
         DB::beginTransaction();
         try {
-            // Buscar asistencia existente
             $attendance = Attendance::where('employee_id', $validated['employee_id'])
                 ->whereDate('date', $validated['date'])
                 ->first();
@@ -174,7 +230,6 @@ class PayrollController extends Controller
                 $attendance->date = $validated['date'];
             }
 
-            // Llenar datos (incluyendo admin_notes)
             $attendance->fill([
                 'incident_type' => $newIncident,
                 'check_in' => $validated['check_in'] ?? null,
@@ -185,11 +240,9 @@ class PayrollController extends Controller
 
             $attendance->save();
 
-            // --- Lógica de Vacaciones ---
             $employee = Employee::find($validated['employee_id']);
             $dateStr = Carbon::parse($validated['date'])->format('d/m/Y');
 
-            // Caso 1: Se asignan vacaciones (y antes NO era vacaciones) -> RESTAR
             if ($newIncident === IncidentType::VACACIONES && $oldIncident !== IncidentType::VACACIONES) {
                 $employee->adjustVacationBalance(
                     -1, 
@@ -198,7 +251,6 @@ class PayrollController extends Controller
                     auth()->id()
                 );
             }
-            // Caso 2: Se quitan vacaciones (y antes SI era vacaciones) -> REEMBOLSAR
             elseif ($oldIncident === IncidentType::VACACIONES && $newIncident !== IncidentType::VACACIONES) {
                 $employee->adjustVacationBalance(
                     1, 
@@ -224,7 +276,9 @@ class PayrollController extends Controller
 
         $isClosed = PayrollReceipt::where('start_date', $start->format('Y-m-d'))->exists();
 
-        $employees = Employee::with('bonuses')
+        // CORRECCIÓN: Quitamos 'bonuses' para no cargar historial manual
+        // Solo cargamos 'recurringBonuses' que es la configuración activa
+        $employees = Employee::with(['recurringBonuses'])
             ->where('is_active', true)
             ->get();
 
@@ -261,7 +315,7 @@ class PayrollController extends Controller
             return back()->with('error', 'Esta nómina ya fue cerrada anteriormente.');
         }
 
-        $employees = Employee::with('bonuses')->where('is_active', true)->get();
+        $employees = Employee::with(['recurringBonuses'])->where('is_active', true)->get();
         $payrollService = new PayrollService();
         $weeklyVacationAccrual = 6 / 52; 
 
@@ -284,7 +338,6 @@ class PayrollController extends Controller
                     'paid_at' => $request->mark_as_paid ? now() : null,
                 ]);
                 
-                // Acumulación semanal de vacaciones
                 $employee->adjustVacationBalance(
                     $weeklyVacationAccrual, 'accrual', "Acumulación semanal (Cierre Nómina)", auth()->id()
                 );
@@ -292,7 +345,6 @@ class PayrollController extends Controller
                 $receiptsCount++;
             }
 
-            // LIMPIEZA DE FOTOS
             $attendances = Attendance::whereBetween('date', [$start->format('Y-m-d'), $end->format('Y-m-d')])->get();
 
             foreach ($attendances as $attendance) {

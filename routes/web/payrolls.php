@@ -11,8 +11,9 @@ Route::get('/payroll/week/{startDate}', [PayrollController::class, 'week'])->nam
 Route::post('/payroll/update-day', [PayrollController::class, 'updateDay'])->name('payroll.update-day');
 Route::get('/payroll/settlement/{startDate}', [PayrollController::class, 'settlement'])->name('payroll.settlement');
 
-// NUEVA RUTA: Acción de cierre
+// RUTA: Acción de cierre
 Route::post('/payroll/settlement', [PayrollController::class, 'storeSettlement'])->name('payroll.store-settlement');
+Route::get('/payroll/receipts/{startDate}', [PayrollController::class, 'receipts'])->name('payroll.receipts');
 
 // Rutas de Turnos (Catálogo)
 // Usamos apiResource o resource excluyendo create/edit/show si usamos modales en el index
