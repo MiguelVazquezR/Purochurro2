@@ -6,6 +6,7 @@ use App\Models\Bonus;
 use App\Models\Employee;
 use App\Models\Shift;
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
@@ -14,14 +15,86 @@ use Illuminate\Support\Facades\Log;
 
 class EmployeeController extends Controller
 {
+    /**
+     * Genera la vista imprimible del contrato.
+     */
+    public function contract(Request $request, Employee $employee, string $type)
+    {
+        if (!in_array($type, ['training', 'seasonal', 'indefinite'])) {
+            abort(404);
+        }
+
+        // Recibimos fechas personalizadas o usamos defaults
+        $startDate = $request->input('start_date')
+            ? Carbon::parse($request->input('start_date'))
+            : $employee->hired_at;
+
+        $endDate = $request->input('end_date')
+            ? Carbon::parse($request->input('end_date'))
+            : null;
+
+        // Formateamos fechas para vista (Ej: 09 de febrero de 2024)
+        $dates = [
+            'start' => $startDate->translatedFormat('d F Y'),
+            'end' => $endDate ? $endDate->translatedFormat('d F Y') : null,
+            'today' => now()->translatedFormat('d F Y'),
+        ];
+
+        return Inertia::render('Employee/Contract', [
+            'employee' => $employee,
+            'type' => $type,
+            'shifts' => Shift::where('is_active', true)->get(),
+            'business' => [
+                'name' => 'Puro Churro',
+                'rep' => 'Sergio Gerardo García Arrizón',
+                'address' => 'Av. Manuel Ávila Camacho 1950, interior plaza patria, isla comercial en frente de negocio comercial conocido como Aldo Conti, en el área común, col. Jacarandas, Zapopan, Jalisco',
+            ],
+            'dates' => $dates,
+            'season_name' => $request->input('season_name'),
+        ]);
+    }
+
+    /**
+     * Genera la vista imprimible del Acta Administrativa.
+     */
+    public function acta(Request $request, Employee $employee)
+    {
+        // Datos del negocio fijos
+        $business = [
+            'name' => 'Puro Churro',
+            'address' => 'Av. Manuel Ávila Camacho 1950, interior Plaza Patria, Zapopan, Jalisco.',
+        ];
+
+        // Procesar la fecha actual
+        $now = now();
+        $dateDetails = [
+            'full' => $now->translatedFormat('l j F Y'),
+            'time' => $now->format('H:i'),
+            'day' => $now->day,
+            'month' => $now->translatedFormat('F'),
+            'year' => $now->year,
+        ];
+
+        return Inertia::render('Employee/Acta', [
+            'employee' => $employee,
+            'business' => $business,
+            'date' => $dateDetails,
+            // Datos llenados por el admin en el formulario
+            'motive' => $request->input('motive', 'Falta injustificada'),
+            'description' => $request->input('description', 'Sin descripción adicional.'),
+            'penalty_type' => $request->input('penalty_type', 'none'), // none, suspension, monetary
+            'penalty_value' => $request->input('penalty_value', ''), // Días o Monto
+        ]);
+    }
+
     public function index(Request $request)
     {
         $query = Employee::query()->with('media');
 
         if ($request->search) {
-            $query->where(function($q) use ($request) {
+            $query->where(function ($q) use ($request) {
                 $q->where('first_name', 'like', "%{$request->search}%")
-                  ->orWhere('last_name', 'like', "%{$request->search}%");
+                    ->orWhere('last_name', 'like', "%{$request->search}%");
             });
         }
 
@@ -63,12 +136,12 @@ class EmployeeController extends Controller
             $user = User::create([
                 'name' => "{$validated['first_name']} {$validated['last_name']}",
                 'email' => $validated['email'],
-                'password' => Hash::make($validated['phone']), 
+                'password' => Hash::make($validated['phone']),
             ]);
 
             $employeeData = $validated;
             $employeeData['user_id'] = $user->id;
-            
+
             $employee = Employee::create($employeeData);
 
             if ($request->hasFile('photo')) {
@@ -82,7 +155,6 @@ class EmployeeController extends Controller
 
             DB::commit();
             return redirect()->route('employees.index')->with('success', 'Empleado creado correctamente.');
-
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Error creando empleado: ' . $e->getMessage());
@@ -116,7 +188,7 @@ class EmployeeController extends Controller
     public function edit(Employee $employee)
     {
         $employee->load(['media', 'recurringBonuses']); // Cargar bonos actuales
-        
+
         return Inertia::render('Employee/Edit', [
             'employee' => $employee,
             'availableBonuses' => Bonus::where('is_active', true)->orderBy('name')->get(),
@@ -153,7 +225,7 @@ class EmployeeController extends Controller
             }
 
             if ($request->hasFile('photo')) {
-                $employee->clearMediaCollection('avatar'); 
+                $employee->clearMediaCollection('avatar');
                 $employee->addMediaFromRequest('photo')->toMediaCollection('avatar');
             }
 
@@ -161,7 +233,7 @@ class EmployeeController extends Controller
             if (isset($validated['recurring_bonuses'])) {
                 $employee->recurringBonuses()->sync($validated['recurring_bonuses']);
             }
-            
+
             DB::commit();
             return redirect()->route('employees.index')->with('success', 'Empleado actualizado.');
         } catch (\Exception $e) {
@@ -201,13 +273,13 @@ class EmployeeController extends Controller
 
     private function calculateSeveranceMexico(Employee $employee)
     {
-        $dailySalary = $employee->base_salary; 
+        $dailySalary = $employee->base_salary;
         $years = $employee->years_of_service;
-        
-        $daysWorkedThisYear = $employee->hired_at->diffInDays(now()) % 365; 
+
+        $daysWorkedThisYear = $employee->hired_at->diffInDays(now()) % 365;
         $proportionalAguinaldo = ($daysWorkedThisYear / 365) * 15 * $dailySalary;
 
-        $vacationDays = $employee->vacation_days_entitled; 
+        $vacationDays = $employee->vacation_days_entitled;
         $proportionalVacations = ($daysWorkedThisYear / 365) * $vacationDays * $dailySalary;
         $vacationPremium = $proportionalVacations * 0.25;
 
