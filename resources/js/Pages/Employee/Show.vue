@@ -4,18 +4,20 @@ import { Link, useForm, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { useConfirm } from "primevue/useconfirm";
 import { useToast } from "primevue/usetoast";
+import DocumentationSection from '@/Pages/Employee/Partials/DocumentationSection.vue';
+import Image from 'primevue/image';
 
 const props = defineProps({
     employee: Object,
     vacation_stats: Object,
-    severance_data: Object, // Solo vendrá si es admin (ID 1)
-    shifts: { type: Array, default: () => [] }
+    severance_data: Object, 
+    shifts: { type: Array, default: () => [] } 
 });
 
 const confirm = useConfirm();
 const toast = useToast();
 
-// --- Helpers de Formato ---
+// --- Helpers ---
 const formatCurrency = (value) => {
     return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(value || 0);
 };
@@ -25,15 +27,28 @@ const formatDate = (dateString) => {
     return new Date(dateString).toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' });
 };
 
-// --- Helpers para Plantilla de Horarios ---
+// 1. Cálculo de Edad
+const calculateAge = (dateString) => {
+    if (!dateString) return 0;
+    const today = new Date();
+    const birthDate = new Date(dateString);
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const m = today.getMonth() - birthDate.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+    }
+    return age;
+};
+
+// 3. Semana empieza en Domingo
 const weekDaysMap = [
+    { key: 'sunday', label: 'Domingo' },
     { key: 'monday', label: 'Lunes' },
     { key: 'tuesday', label: 'Martes' },
     { key: 'wednesday', label: 'Miércoles' },
     { key: 'thursday', label: 'Jueves' },
     { key: 'friday', label: 'Viernes' },
     { key: 'saturday', label: 'Sábado' },
-    { key: 'sunday', label: 'Domingo' },
 ];
 
 const getShiftDetails = (shiftId) => {
@@ -46,107 +61,11 @@ const formatTimeShort = (timeStr) => {
     return timeStr.substring(0, 5);
 };
 
-// --- LÓGICA DE CONTRATOS ---
-const showContractConfigDialog = ref(false);
-const contractConfig = ref({
-    type: 'indefinite',
-    start_date: new Date(),
-    end_date: null,
-    season_name: ''
-});
-
-const openContractDialog = (type) => {
-    contractConfig.value.type = type;
-    const hiredDate = props.employee.hired_at ? new Date(props.employee.hired_at) : new Date();
-    contractConfig.value.start_date = hiredDate;
-    
-    if (type === 'training') {
-        const end = new Date(hiredDate);
-        end.setDate(end.getDate() + 30);
-        contractConfig.value.end_date = end;
-    } else if (type === 'seasonal') {
-        contractConfig.value.end_date = null;
-        contractConfig.value.season_name = 'Navideña';
-    } else {
-        contractConfig.value.end_date = null;
-    }
-    showContractConfigDialog.value = true;
-};
-
-const generateContract = () => {
-    if (contractConfig.value.type !== 'indefinite' && !contractConfig.value.end_date) {
-        toast.add({ severity: 'warn', summary: 'Faltan datos', detail: 'Selecciona una fecha de término.', life: 3000 });
-        return;
-    }
-
-    const params = {
-        start_date: contractConfig.value.start_date?.toISOString().split('T')[0],
-        end_date: contractConfig.value.end_date?.toISOString().split('T')[0],
-        season_name: contractConfig.value.season_name
-    };
-
-    const url = route('employees.contract', { 
-        employee: props.employee.id, 
-        type: contractConfig.value.type,
-        ...params 
-    });
-
-    window.open(url, '_blank');
-    showContractConfigDialog.value = false;
-};
-
-// --- LÓGICA DE ACTA ADMINISTRATIVA ---
-const showActaConfigDialog = ref(false);
-const actaConfig = ref({
-    motive: '',
-    description: '',
-    penalty_type: 'none',
-    penalty_value: ''
-});
-
-const penaltyOptions = [
-    { label: 'No hay penalización (Solo llamada de atención)', value: 'none' },
-    { label: 'Suspensión sin goce de sueldo', value: 'suspension' },
-    { label: 'Penalización monetaria (Daños)', value: 'monetary' },
-];
-
-const openActaDialog = () => {
-    actaConfig.value = {
-        motive: '',
-        description: '',
-        penalty_type: 'none',
-        penalty_value: ''
-    };
-    showActaConfigDialog.value = true;
-};
-
-const generateActa = () => {
-    if (!actaConfig.value.motive || !actaConfig.value.description) {
-        toast.add({ severity: 'warn', summary: 'Campos incompletos', detail: 'Ingresa el motivo y descripción de los hechos.', life: 3000 });
-        return;
-    }
-
-    const params = {
-        motive: actaConfig.value.motive,
-        description: actaConfig.value.description,
-        penalty_type: actaConfig.value.penalty_type,
-        penalty_value: actaConfig.value.penalty_value
-    };
-
-    const url = route('employees.acta', {
-        employee: props.employee.id,
-        ...params
-    });
-
-    window.open(url, '_blank');
-    showActaConfigDialog.value = false;
-};
-
-// --- Lógica de Baja (Terminación) ---
+// --- Lógica de Baja ---
 const showTerminateDialog = ref(false);
 const terminateForm = useForm({
     termination_date: new Date(),
-    reason: 'resignation',
+    reason: 'resignation', 
     notes: '',
 });
 
@@ -158,7 +77,6 @@ const terminationReasons = [
 
 const estimatedPayout = computed(() => {
     if (!props.severance_data) return 0;
-    
     const reason = terminateForm.reason;
     const baseFiniquito = props.severance_data.concepts.total_finiquito;
     
@@ -172,18 +90,20 @@ const confirmTermination = () => {
     terminateForm.transform((data) => ({
         ...data,
         termination_date: data.termination_date.toISOString().split('T')[0],
-    })).put(route('employees.terminate', props.employee.id), {
-        onSuccess: () => {
+    })).post(route('employees.terminate', props.employee.id), {
+        onSuccess: (page) => {
             showTerminateDialog.value = false;
             toast.add({ severity: 'success', summary: 'Baja Procesada', detail: 'El empleado ha sido dado de baja.', life: 3000 });
+            if (page.props.flash && page.props.flash.open_settlement) {
+                window.open(route('employees.settlement', { employee: props.employee.id }), '_blank');
+            }
         },
         onError: () => {
-            toast.add({ severity: 'error', summary: 'Error', detail: 'Verifica los datos de la baja.', life: 3000 });
+            toast.add({ severity: 'error', summary: 'Error', detail: 'Verifica los datos.', life: 3000 });
         }
     });
 };
 
-// --- Lógica de Reactivación ---
 const reactivateEmployee = () => {
     confirm.require({
         message: '¿Deseas reactivar a este empleado?',
@@ -246,12 +166,10 @@ const reactivateEmployee = () => {
                 </div>
             </div>
 
-            <!-- Contenido Principal Grid -->
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 
-                <!-- COLUMNA IZQUIERDA: Perfil y Datos -->
+                <!-- COLUMNA IZQUIERDA -->
                 <div class="lg:col-span-1 flex flex-col gap-6">
-                    
                     <!-- Tarjeta Foto -->
                     <div class="bg-white rounded-3xl shadow-sm border border-surface-200 p-4 flex flex-col items-center">
                         <div class="w-40 h-40 rounded-full overflow-hidden border-4 border-surface-50 shadow-inner mb-4 relative group">
@@ -287,7 +205,11 @@ const reactivateEmployee = () => {
                             <div class="w-8 h-8 rounded-full bg-purple-50 flex items-center justify-center text-purple-500"><i class="pi pi-gift"></i></div>
                             <div>
                                 <p class="text-xs text-surface-500">Cumpleaños</p>
-                                <p class="text-sm font-medium text-surface-900">{{ formatDate(employee.birth_date) }}</p>
+                                <!-- MEJORA 1: Edad junto a la fecha -->
+                                <p class="text-sm font-medium text-surface-900">
+                                    {{ formatDate(employee.birth_date) }} 
+                                    <span class="text-xs text-surface-500 ml-1">({{ calculateAge(employee.birth_date) }} años)</span>
+                                </p>
                             </div>
                         </div>
 
@@ -307,64 +229,22 @@ const reactivateEmployee = () => {
                         </div>
                     </div>
 
-                    <!-- TARJETA: Documentación y Contratos -->
-                    <div v-if="employee.is_active" class="bg-white rounded-3xl shadow-sm border border-surface-200 p-6 flex flex-col gap-4">
-                        <h3 class="text-xs font-bold text-surface-400 uppercase tracking-wider flex items-center gap-2">
-                            <i class="pi pi-file-pdf"></i> Documentación
-                        </h3>
-                        <p class="text-xs text-surface-500 mb-2">Generar documentos legales.</p>
-                        
-                        <div class="space-y-2">
-                            <Button 
-                                label="Capacitación (30 días)" 
-                                icon="pi pi-file" 
-                                severity="secondary" 
-                                outlined 
-                                size="small"
-                                class="w-full justify-start text-left"
-                                @click="openContractDialog('training')"
-                            />
-                            <Button 
-                                label="Contrato de Temporada" 
-                                icon="pi pi-sun" 
-                                severity="secondary" 
-                                outlined 
-                                size="small"
-                                class="w-full justify-start text-left"
-                                @click="openContractDialog('seasonal')"
-                            />
-                            <Button 
-                                label="Contrato Indeterminado" 
-                                icon="pi pi-briefcase" 
-                                severity="secondary" 
-                                outlined 
-                                size="small"
-                                class="w-full justify-start text-left"
-                                @click="openContractDialog('indefinite')"
-                            />
-                        </div>
-
-                        <div class="border-t border-surface-100 my-2"></div>
-
-                        <Button 
-                            label="Generar Acta Administrativa" 
-                            icon="pi pi-exclamation-circle" 
-                            severity="danger" 
-                            outlined 
-                            size="small"
-                            class="w-full justify-start text-left"
-                            @click="openActaDialog"
-                        />
-                    </div>
+                    <!-- Componente de Documentación -->
+                    <DocumentationSection 
+                        v-if="employee.is_active" 
+                        :employeeId="employee.id" 
+                        :hiredAt="employee.hired_at" 
+                    />
 
                     <!-- Botón Reactivar -->
                     <div v-if="!employee.is_active" class="bg-red-50 rounded-2xl border border-red-100 p-4 text-center">
                         <p class="text-red-800 font-medium mb-2">Este empleado está dado de baja.</p>
                         <p class="text-xs text-red-600 mb-3">Fecha: {{ formatDate(employee.termination_date) }}</p>
+                        <p class="italic text-xs text-red-700 mb-2">Notas: {{ employee.termination_notes }}</p>
                         <Button 
-                            label="Reactivar Empleado" 
+                            label="Reactivar empleado" 
                             icon="pi pi-refresh" 
-                            severity="success" 
+                            severity="danger" 
                             outlined 
                             class="w-full"
                             @click="reactivateEmployee"
@@ -372,17 +252,17 @@ const reactivateEmployee = () => {
                     </div>
                 </div>
 
-                <!-- COLUMNA DERECHA: Bonos, Vacaciones y Gestión -->
+                <!-- COLUMNA DERECHA -->
                 <div class="lg:col-span-2 flex flex-col gap-6">
 
-                    <!-- TARJETA: Semana Típica -->
+                    <!-- Semana Típica (Empieza Domingo) -->
                     <div class="bg-white rounded-3xl shadow-sm border border-surface-200 overflow-hidden">
                         <div class="p-5 border-b border-surface-100 bg-surface-50 flex justify-between items-center">
                             <div>
                                 <h3 class="text-lg font-bold text-surface-900 flex items-center gap-2">
                                     <i class="pi pi-calendar text-indigo-500"></i> Semana típica
                                 </h3>
-                                <p class="text-xs text-surface-500 mt-0.5">Plantilla utilizada para la generación automática.</p>
+                                <p class="text-xs text-surface-500 mt-0.5">Plantilla utilizada para la generación automática de horarios.</p>
                             </div>
                             <Link :href="route('employees.edit', employee.id)">
                                 <Button icon="pi pi-pencil" text rounded severity="secondary" v-tooltip.top="'Modificar Plantilla'" />
@@ -419,7 +299,7 @@ const reactivateEmployee = () => {
                         </div>
                     </div>
                     
-                    <!-- Tarjeta de Bonos Recurrentes -->
+                    <!-- MEJORA 2: Tarjeta de Bonos (Info detallada) -->
                     <div class="bg-white rounded-3xl shadow-sm border border-surface-200 overflow-hidden">
                         <div class="p-6 border-b border-surface-100 bg-gradient-to-r from-blue-50 to-white flex justify-between items-center">
                             <div>
@@ -438,19 +318,20 @@ const reactivateEmployee = () => {
                                         </div>
                                         <div>
                                             <p class="text-sm font-bold text-surface-900">{{ bonus.name }}</p>
-                                            <p class="text-[10px] text-surface-500 uppercase tracking-wider">{{ bonus.pivot.is_active ? 'Automático' : 'Pausado' }}</p>
+                                            <!-- Info dinámica o defaults si no existen campos -->
+                                            <div class="flex gap-1 mt-1">
+                                                <Tag :value="bonus.type || 'Directo'" severity="info" class="!text-[9px] !py-0 !px-1.5" />
+                                                <span class="text-[10px] text-surface-500 bg-surface-100 px-1.5 rounded">{{ bonus.frequency || 'Por periodo' }}</span>
+                                            </div>
                                         </div>
                                     </div>
                                     <div class="text-right">
                                         <span class="block text-sm font-black text-surface-900">{{ formatCurrency(bonus.pivot?.amount || bonus.amount) }}</span>
-                                        <span class="text-[10px] text-surface-400">por periodo</span>
+                                        <span class="text-[10px] text-surface-400">monto</span>
                                     </div>
                                 </div>
                             </div>
                             <div v-else class="text-center py-8">
-                                <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-surface-50 text-surface-400 mb-2">
-                                    <i class="pi pi-ticket text-xl"></i>
-                                </div>
                                 <p class="text-sm text-surface-500">No tiene bonos recurrentes asignados.</p>
                                 <Link :href="route('employees.edit', employee.id)" class="text-xs text-blue-600 font-bold hover:underline mt-1 block">
                                     Asignar bonos en Editar
@@ -485,8 +366,8 @@ const reactivateEmployee = () => {
                                 <Column field="type" header="Tipo">
                                     <template #body="slotProps">
                                         <Tag 
-                                            :value="slotProps.data.type === 'usage' ? 'Uso' : (slotProps.data.type === 'accrual' ? 'Acumulación' : 'Ajuste')" 
-                                            :severity="slotProps.data.type === 'usage' ? 'warn' : (slotProps.data.type === 'accrual' ? 'success' : 'info')"
+                                            :value="slotProps.data.type === 'usage' ? 'Uso' : 'Acumulación'" 
+                                            :severity="slotProps.data.type === 'usage' ? 'warn' : 'success'"
                                             class="!text-[10px] !px-2"
                                         />
                                     </template>
@@ -509,7 +390,7 @@ const reactivateEmployee = () => {
                         </div>
                     </div>
 
-                    <!-- Módulo de Baja -->
+                    <!-- Módulo de Baja (Solo Admin) -->
                     <div v-if="employee.is_active && severance_data" class="bg-white rounded-3xl shadow-sm border border-surface-200 p-6">
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-lg font-bold text-surface-900 flex items-center gap-2">
@@ -523,108 +404,11 @@ const reactivateEmployee = () => {
                                 @click="showTerminateDialog = true"
                             />
                         </div>
-                        <p class="text-sm text-surface-500">
-                            Utiliza esta sección para terminar la relación laboral. El sistema calculará automáticamente el finiquito o liquidación correspondiente.
-                        </p>
                     </div>
 
                 </div>
             </div>
         </div>
-
-        <!-- DIÁLOGO: Configurar Contrato -->
-        <Dialog 
-            v-model:visible="showContractConfigDialog" 
-            modal 
-            header="Configurar Contrato" 
-            :style="{ width: '30rem' }"
-            :breakpoints="{ '960px': '75vw', '641px': '90vw' }"
-        >
-            <div class="flex flex-col gap-4">
-                <div class="flex flex-col gap-2">
-                    <label class="font-bold text-surface-700 text-sm">Fecha de Inicio del Contrato</label>
-                    <DatePicker v-model="contractConfig.start_date" showIcon dateFormat="dd/mm/yy" class="w-full" />
-                </div>
-
-                <div class="flex flex-col gap-2" v-if="contractConfig.type !== 'indefinite'">
-                    <label class="font-bold text-surface-700 text-sm">Fecha de Término</label>
-                    <DatePicker v-model="contractConfig.end_date" showIcon dateFormat="dd/mm/yy" class="w-full" />
-                </div>
-
-                <div class="flex flex-col gap-2" v-if="contractConfig.type === 'seasonal'">
-                    <label class="font-bold text-surface-700 text-sm">Nombre de la Temporada</label>
-                    <InputText v-model="contractConfig.season_name" placeholder="Ej. Navideña, Semana Santa" class="w-full" />
-                </div>
-            </div>
-            <template #footer>
-                <div class="flex gap-2 justify-end">
-                    <Button label="Cancelar" text @click="showContractConfigDialog = false" severity="secondary" />
-                    <Button label="Generar PDF" icon="pi pi-file-pdf" @click="generateContract" />
-                </div>
-            </template>
-        </Dialog>
-
-        <!-- DIÁLOGO: Configurar Acta Administrativa (NUEVO) -->
-        <Dialog 
-            v-model:visible="showActaConfigDialog" 
-            modal 
-            header="Levantar acta administrativa" 
-            :style="{ width: '40rem' }"
-            :breakpoints="{ '960px': '90vw' }"
-        >
-            <div class="flex flex-col gap-4">
-                <div class="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800 flex gap-2">
-                    <i class="pi pi-info-circle mt-0.5"></i>
-                    <p>Este documento quedará registrado en el expediente físico. Asegúrate de describir los hechos con objetividad.</p>
-                </div>
-
-                <div class="flex flex-col gap-2">
-                    <label class="font-bold text-surface-700 text-sm">Motivo de la falta</label>
-                    <InputText v-model="actaConfig.motive" placeholder="Ej. Falta injustificada, Retardo, Uso indebido de equipo..." class="w-full" />
-                </div>
-
-                <div class="flex flex-col gap-2">
-                    <label class="font-bold text-surface-700 text-sm">Descripción de los hechos</label>
-                    <Textarea v-model="actaConfig.description" rows="4" class="w-full" placeholder="Detalla qué ocurrió, cuándo y dónde..." />
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div class="flex flex-col gap-2">
-                        <label class="font-bold text-surface-700 text-sm">Tipo de sanción</label>
-                        <Select 
-                            v-model="actaConfig.penalty_type" 
-                            :options="penaltyOptions" 
-                            optionLabel="label" 
-                            optionValue="value" 
-                            class="w-full"
-                            fluid
-                        />
-                    </div>
-                    
-                    <div v-if="actaConfig.penalty_type === 'suspension'" class="flex flex-col gap-2 animate-fade-in">
-                        <label class="font-bold text-surface-700 text-sm">Días de suspensión</label>
-                        <div class="p-inputgroup flex-1">
-                            <InputText v-model="actaConfig.penalty_value" placeholder="Ej. 3" class="!w-24" :min="0" type="number" />
-                            <span class="p-inputgroup-addon"> Días</span>
-                        </div>
-                    </div>
-
-                    <div v-if="actaConfig.penalty_type === 'monetary'" class="flex flex-col gap-2 animate-fade-in">
-                        <label class="font-bold text-surface-700 text-sm">Monto de Penalización</label>
-                        <div class="p-inputgroup flex-1">
-                            <span class="p-inputgroup-addon">$</span>
-                            <InputText v-model="actaConfig.penalty_value" placeholder="0.00" class="!w-24" type="number" />
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <template #footer>
-                <div class="flex gap-2 justify-end">
-                    <Button label="Cancelar" text @click="showActaConfigDialog = false" severity="secondary" />
-                    <Button label="Generar acta" icon="pi pi-print" severity="danger" @click="generateActa" />
-                </div>
-            </template>
-        </Dialog>
 
         <!-- DIÁLOGO: Terminación / Baja -->
         <Dialog 
@@ -635,8 +419,6 @@ const reactivateEmployee = () => {
             :breakpoints="{ '960px': '75vw', '641px': '90vw' }"
         >
             <div class="flex flex-col gap-6">
-                
-                <!-- Alerta Informativa -->
                 <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 flex gap-3">
                     <i class="pi pi-info-circle text-blue-500 text-xl mt-1"></i>
                     <div class="text-sm text-blue-800">
@@ -644,12 +426,10 @@ const reactivateEmployee = () => {
                         <ul class="list-disc list-inside mt-1 space-y-1 text-blue-700">
                             <li>Antigüedad: {{ severance_data?.years_worked }} años</li>
                             <li>Salario Diario: {{ formatCurrency(severance_data?.daily_salary) }}</li>
-                            <li>Vacaciones Pendientes: {{ severance_data?.concepts.vacations_proportional > 0 ? 'Sí' : 'No' }}</li>
                         </ul>
                     </div>
                 </div>
 
-                <!-- Formulario -->
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div class="flex flex-col gap-2">
                         <label class="font-bold text-surface-700 text-sm">Fecha de Baja</label>
@@ -657,31 +437,25 @@ const reactivateEmployee = () => {
                     </div>
                     <div class="flex flex-col gap-2">
                         <label class="font-bold text-surface-700 text-sm">Motivo de Baja</label>
-                        <Select 
-                            v-model="terminateForm.reason" 
-                            :options="terminationReasons" 
-                            optionLabel="label" 
-                            optionValue="value" 
-                            class="w-full"
-                        />
+                        <Select v-model="terminateForm.reason" :options="terminationReasons" optionLabel="label" optionValue="value" class="w-full" />
                     </div>
                     <div class="flex flex-col gap-2 md:col-span-2">
                         <label class="font-bold text-surface-700 text-sm">Notas / Justificación</label>
-                        <Textarea v-model="terminateForm.notes" rows="3" class="w-full" placeholder="Detalles de la baja..." />
+                        <Textarea v-model="terminateForm.notes" rows="3" class="w-full" placeholder="Detalles..." />
                     </div>
                 </div>
 
-                <!-- Simulación de Pagos -->
+                <!-- MEJORA 4: Desglose con Días -->
                 <div class="border-t border-surface-200 pt-4">
                     <h4 class="text-sm font-bold text-surface-900 mb-3 uppercase tracking-wider">Desglose Estimado</h4>
                     
                     <div class="space-y-2 mb-4">
                         <div class="flex justify-between text-sm">
-                            <span class="text-surface-600">Aguinaldo Proporcional</span>
+                            <span class="text-surface-600">Aguinaldo ({{ severance_data?.concepts.aguinaldo_days }} días)</span>
                             <span class="font-medium">{{ formatCurrency(severance_data?.concepts.aguinaldo_proportional) }}</span>
                         </div>
                         <div class="flex justify-between text-sm">
-                            <span class="text-surface-600">Vacaciones Proporcionales</span>
+                            <span class="text-surface-600">Vacaciones ({{ severance_data?.concepts.vacation_days }} días)</span>
                             <span class="font-medium">{{ formatCurrency(severance_data?.concepts.vacations_proportional) }}</span>
                         </div>
                         <div class="flex justify-between text-sm">
@@ -690,19 +464,12 @@ const reactivateEmployee = () => {
                         </div>
                     </div>
 
-                    <div v-if="terminateForm.reason === 'unjustified'" class="bg-red-50 p-3 rounded-lg border border-red-100 space-y-2 mb-4 animate-fade-in">
+                    <div v-if="terminateForm.reason === 'unjustified'" class="bg-red-50 p-3 rounded-lg border border-red-100 space-y-2 mb-4">
                         <p class="text-xs font-bold text-red-600 uppercase mb-2">Indemnización Constitucional</p>
+                        <!-- Desglose indemnización... -->
                         <div class="flex justify-between text-sm">
-                            <span class="text-red-700">3 Meses de Salario</span>
-                            <span class="font-bold text-red-700">{{ formatCurrency(severance_data?.compensation_unjustified.months_3) }}</span>
-                        </div>
-                        <div class="flex justify-between text-sm">
-                            <span class="text-red-700">20 Días por Año</span>
-                            <span class="font-bold text-red-700">{{ formatCurrency(severance_data?.compensation_unjustified.days_20_per_year) }}</span>
-                        </div>
-                        <div class="flex justify-between text-sm">
-                            <span class="text-red-700">Prima de Antigüedad</span>
-                            <span class="font-bold text-red-700">{{ formatCurrency(severance_data?.compensation_unjustified.seniority_premium) }}</span>
+                            <span class="text-red-700">Total Liquidación</span>
+                            <span class="font-bold text-red-700">{{ formatCurrency(severance_data?.compensation_unjustified.total_liquidation) }}</span>
                         </div>
                     </div>
 
@@ -710,23 +477,13 @@ const reactivateEmployee = () => {
                         <span class="font-bold">Total a Pagar</span>
                         <span class="text-2xl font-extrabold">{{ formatCurrency(estimatedPayout) }}</span>
                     </div>
-                    <p class="text-xs text-center text-surface-400 mt-2">
-                        * Cálculo estimado según la LFT vigente. No incluye deducciones de impuestos (ISR).
-                    </p>
                 </div>
-
             </div>
 
             <template #footer>
                 <div class="flex gap-2 justify-end">
                     <Button label="Cancelar" icon="pi pi-times" text @click="showTerminateDialog = false" severity="secondary" />
-                    <Button 
-                        label="Confirmar Baja" 
-                        icon="pi pi-check" 
-                        @click="confirmTermination" 
-                        severity="danger" 
-                        :loading="terminateForm.processing"
-                    />
+                    <Button label="Confirmar Baja" icon="pi pi-check" @click="confirmTermination" severity="danger" :loading="terminateForm.processing" />
                 </div>
             </template>
         </Dialog>
@@ -737,12 +494,5 @@ const reactivateEmployee = () => {
 <style scoped>
 :deep(.p-inputtext), :deep(.p-textarea) {
     border-radius: 0.75rem;
-}
-.animate-fade-in {
-    animation: fadeIn 0.3s ease-in-out;
-}
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(-5px); }
-    to { opacity: 1; transform: translateY(0); }
 }
 </style>
