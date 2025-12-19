@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class StockAdjustmentController extends Controller
 {
@@ -18,12 +19,26 @@ class StockAdjustmentController extends Controller
     {
         return Inertia::render('StockAdjustment/Index', [
             'locations' => Location::all(),
-            'products' => Product::where('is_active', true)->where('track_inventory', true)->orderBy('name')->get(),
+            'products' => Product::where('is_active', true)
+                ->where('track_inventory', true)
+                ->with('inventories')
+                ->orderBy('name')
+                ->get()
+                ->map(function ($product) {
+                    return [
+                        'id' => $product->id,
+                        'name' => $product->name,
+                        'inventories' => $product->inventories->mapWithKeys(function ($inv) {
+                            return [$inv->location_id => $inv->quantity];
+                        }),
+                        'image_url' => $product->getFirstMediaUrl('product_image', 'thumb'),
+                    ];
+                }),
             'types' => [
-                ['value' => StockMovementType::PURCHASE->value, 'label' => 'Compra (Entrada)'],
-                ['value' => StockMovementType::ADJUSTMENT_IN->value, 'label' => 'Ajuste Manual (+)'],
-                ['value' => StockMovementType::ADJUSTMENT_OUT->value, 'label' => 'Ajuste Manual (-)'],
-                ['value' => StockMovementType::WASTE->value, 'label' => 'Merma / Caducado (-)'],
+                ['value' => StockMovementType::PURCHASE->value, 'label' => 'Compra / Entrada (+)', 'color' => 'green'],
+                ['value' => StockMovementType::ADJUSTMENT_IN->value, 'label' => 'Ajuste Entrada (+)', 'color' => 'blue'],
+                ['value' => StockMovementType::ADJUSTMENT_OUT->value, 'label' => 'Ajuste Salida (-)', 'color' => 'yellow'],
+                ['value' => StockMovementType::WASTE->value, 'label' => 'Merma / Caducado (-)', 'color' => 'red'],
             ]
         ]);
     }
@@ -39,6 +54,7 @@ class StockAdjustmentController extends Controller
         ]);
 
         $type = StockMovementType::from($validated['type']);
+        // Definir si es entrada o salida basado en el Enum
         $isEntry = in_array($type, [StockMovementType::PURCHASE, StockMovementType::ADJUSTMENT_IN]);
         
         DB::beginTransaction();
@@ -51,16 +67,15 @@ class StockAdjustmentController extends Controller
             // Validar Stock si es salida
             if (!$isEntry) {
                 if ($inventory->quantity < $validated['quantity']) {
-                    return back()->with('error', "Stock insuficiente. Actual: {$inventory->quantity}");
+                    throw ValidationException::withMessages([
+                        'quantity' => "Stock insuficiente. Actual: {$inventory->quantity}"
+                    ]);
                 }
                 $inventory->decrement('quantity', $validated['quantity']);
             } else {
                 $inventory->increment('quantity', $validated['quantity']);
             }
 
-            // Registrar Movimiento
-            // Si es entrada: from=NULL, to=Location
-            // Si es salida: from=Location, to=NULL
             StockMovement::create([
                 'product_id' => $validated['product_id'],
                 'from_location_id' => $isEntry ? null : $validated['location_id'],
@@ -72,11 +87,14 @@ class StockAdjustmentController extends Controller
             ]);
 
             DB::commit();
-            return back()->with('success', 'Movimiento registrado correctamente.');
+            return back()->with('success', 'Movimiento de inventario registrado.');
 
+        } catch (ValidationException $e) {
+            DB::rollBack();
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
-            return back()->with('error', 'Error al procesar: ' . $e->getMessage());
+            return back()->with('error', 'Error: ' . $e->getMessage());
         }
     }
 }

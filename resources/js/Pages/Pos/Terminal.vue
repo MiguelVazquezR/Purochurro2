@@ -1,12 +1,13 @@
 <script setup>
-import { ref, computed } from 'vue';
-import { Head, useForm } from '@inertiajs/vue3';
+import { ref, computed, watch } from 'vue';
+import { Head, useForm, Link } from '@inertiajs/vue3'; 
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { useToast } from "primevue/usetoast";
 import Dialog from 'primevue/dialog';
 import Button from 'primevue/button';
 import Select from 'primevue/select';
 import Tag from 'primevue/tag';
+import ToggleButton from 'primevue/togglebutton'; // Importante para el botón de empleado
 
 const props = defineProps({
     operation: Object,
@@ -22,6 +23,7 @@ const selectedLocation = ref(props.locations[0]?.id);
 const showPaymentModal = ref(false);
 const processingPayment = ref(false);
 const keypadInput = ref('0');
+const isEmployeeSale = ref(false); // Nuevo estado para precio empleado
 
 const paymentForm = useForm({
     location_id: null,
@@ -34,15 +36,53 @@ const filteredProducts = computed(() => {
     return props.products;
 });
 
+// Helper para obtener el precio correcto según el modo
+const getPrice = (product) => {
+    return isEmployeeSale.value ? parseFloat(product.employee_price) : parseFloat(product.price);
+};
+
+// Helper para obtener stock de la ubicación seleccionada
+const getProductStock = (product) => {
+    if (!product.track_inventory) return Infinity;
+    // Accedemos al objeto stocks enviado por el controlador
+    return product.stocks[selectedLocation.value] || 0;
+};
+
+// Observador: Si cambia el modo empleado, actualizar precios del carrito
+watch(isEmployeeSale, (newValue) => {
+    cart.value.forEach(item => {
+        // Buscamos el producto original para obtener su precio
+        const originalProduct = props.products.find(p => p.id === item.product_id);
+        if (originalProduct) {
+            item.price = getPrice(originalProduct);
+        }
+    });
+    toast.add({ 
+        severity: 'info', 
+        summary: newValue ? 'Modo Empleado' : 'Modo Público', 
+        detail: 'Precios actualizados', 
+        life: 1000 
+    });
+});
+
 const addToCart = (product) => {
+    const stock = getProductStock(product);
     const item = cart.value.find(i => i.product_id === product.id);
+    
+    // Validación simple de stock al agregar
+    const currentQty = item ? item.quantity : 0;
+    if (product.track_inventory && currentQty + 1 > stock) {
+        toast.add({ severity: 'warn', summary: 'Sin stock', detail: 'No hay más unidades en esta ubicación.', life: 2000 });
+        return;
+    }
+
     if (item) {
         item.quantity++;
     } else {
         cart.value.push({
             product_id: product.id,
             name: product.name,
-            price: parseFloat(product.price),
+            price: getPrice(product), // Usamos el precio dinámico
             image: product.image_url,
             quantity: 1
         });
@@ -51,7 +91,17 @@ const addToCart = (product) => {
 
 const updateQty = (index, delta) => {
     const item = cart.value[index];
+    const product = props.products.find(p => p.id === item.product_id);
+    const stock = getProductStock(product);
+    
     const newVal = item.quantity + delta;
+    
+    // Validar stock al incrementar
+    if (delta > 0 && product.track_inventory && newVal > stock) {
+        toast.add({ severity: 'warn', summary: 'Sin stock', detail: 'Límite de existencias alcanzado.', life: 2000 });
+        return;
+    }
+
     if (newVal > 0) item.quantity = newVal;
     else cart.value.splice(index, 1);
 };
@@ -70,7 +120,6 @@ const appendNumber = (n) => {
     if (keypadInput.value.includes('.') && n === '.') return;
     keypadInput.value = (keypadInput.value === '0' && n !== '.') ? n.toString() : keypadInput.value + n;
 };
-const clearKeypad = () => keypadInput.value = '0';
 const backspace = () => keypadInput.value = keypadInput.value.length > 1 ? keypadInput.value.slice(0, -1) : '0';
 
 const changeAmount = computed(() => (parseFloat(keypadInput.value) || 0) - cartTotal.value);
@@ -89,14 +138,18 @@ const processSale = () => {
     paymentForm.items = cart.value.map(i => ({ product_id: i.product_id, quantity: i.quantity, price: i.price }));
     
     paymentForm.post(route('pos.store-sale'), {
+        preserveScroll: true,
         onSuccess: () => {
             toast.add({ severity: 'success', summary: 'Venta exitosa', detail: `Cambio: ${formatCurrency(changeAmount.value)}`, life: 5000 });
             showPaymentModal.value = false;
             clearCart();
             processingPayment.value = false;
+            // Opcional: Resetear modo empleado al terminar
+            // isEmployeeSale.value = false; 
         },
-        onError: () => {
-            toast.add({ severity: 'error', summary: 'Error', detail: 'No se procesó la venta.', life: 3000 });
+        onError: (errors) => {
+            const errorMsg = errors.items || errors[0] || 'No se procesó la venta.';
+            toast.add({ severity: 'error', summary: 'Error en venta', detail: errorMsg, life: 5000 });
             processingPayment.value = false;
         }
     });
@@ -112,9 +165,22 @@ const formatCurrency = (val) => new Intl.NumberFormat('es-MX', { style: 'currenc
             <!-- IZQUIERDA: Catálogo (7 columnas) -->
             <div class="md:col-span-7 flex flex-col bg-white border border-surface-200 rounded-[2rem] shadow-md overflow-hidden h-full relative">
                 <div class="px-6 py-5 border-b border-surface-100 flex justify-between items-center bg-white/80 backdrop-blur-md sticky top-0 z-10">
-                    <div>
-                        <h2 class="text-xl font-black text-gray-800 tracking-tight">Productos</h2>
-                        <p class="text-sm text-gray-400 font-medium">{{ products.length }} items disponibles</p>
+                    
+                    <div class="flex items-center gap-4">
+                        <div>
+                            <h2 class="text-xl font-black text-gray-800 tracking-tight">Productos</h2>
+                            <p class="text-sm text-gray-400 font-medium">{{ products.length }} items disponibles</p>
+                        </div>
+
+                        <!-- Accesos Rápidos Inventario -->
+                        <div class="flex gap-1 ml-2 border-l border-gray-200 pl-3">
+                            <Link :href="route('stock-transfers.index')" v-tooltip.bottom="'Traspasos'">
+                                <Button icon="pi pi-arrows-h" text rounded severity="help" class="!w-10 !h-10 hover:bg-indigo-50" />
+                            </Link>
+                            <Link :href="route('stock-adjustments.index')" v-tooltip.bottom="'Entradas/Salidas/Mermas'">
+                                <Button icon="pi pi-sliders-h" text rounded severity="warn" class="!w-10 !h-10 hover:bg-orange-50" />
+                            </Link>
+                        </div>
                     </div>
 
                     <div v-if="locations.length > 1" class="w-48">
@@ -128,14 +194,19 @@ const formatCurrency = (val) => new Intl.NumberFormat('es-MX', { style: 'currenc
                             v-for="product in filteredProducts" 
                             :key="product.id"
                             @click="addToCart(product)"
-                            class="group bg-white border border-surface-100 rounded-2xl p-3 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.05)] hover:shadow-[0_8px_16px_-4px_rgba(99,102,241,0.15)] hover:border-indigo-200 transition-all duration-300 text-left flex flex-col gap-3 h-full relative overflow-hidden"
+                            :disabled="product.track_inventory && getProductStock(product) <= 0"
+                            class="group bg-white border border-surface-100 rounded-2xl p-3 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.05)] hover:shadow-[0_8px_16px_-4px_rgba(99,102,241,0.15)] hover:border-indigo-200 transition-all duration-300 text-left flex flex-col gap-3 h-full relative overflow-hidden disabled:opacity-60 disabled:cursor-not-allowed"
                         >
                             <div class="aspect-square rounded-xl bg-gray-50 overflow-hidden relative w-full shadow-inner">
                                 <img v-if="product.image_url" :src="product.image_url" class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
-                                <div v-else class="w-full h-full flex items-center justify-center text-gray-300"><i class="pi pi-image text-3xl opacity-50"></i></div>
+                                <div v-else class="w-full h-full flex items-center justify-center text-gray-300"><i class="pi pi-image !text-3xl opacity-50"></i></div>
                                 
-                                <span class="absolute bottom-2 right-2 bg-white/95 backdrop-blur px-2.5 py-1 rounded-lg text-xs font-black text-gray-800 shadow-sm border border-gray-100">
-                                    {{ formatCurrency(product.price) }}
+                                <!-- Precio (Cambia de color si es empleado) -->
+                                <span 
+                                    class="absolute bottom-2 right-2 backdrop-blur px-2.5 py-1 rounded-lg text-xs font-black shadow-sm border"
+                                    :class="isEmployeeSale ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-white/95 text-gray-800 border-gray-100'"
+                                >
+                                    {{ formatCurrency(getPrice(product)) }}
                                 </span>
                             </div>
 
@@ -144,8 +215,13 @@ const formatCurrency = (val) => new Intl.NumberFormat('es-MX', { style: 'currenc
                                     {{ product.name }}
                                 </p>
                                 <div class="flex items-center justify-between mt-1">
-                                    <Tag v-if="product.track_inventory" :severity="product.stock > 0 ? 'success' : 'danger'" class="!text-[10px] !px-2 !py-0.5 !rounded-md font-bold">
-                                        {{ product.stock > 0 ? product.stock + ' u.' : 'Agotado' }}
+                                    <!-- Stock Dinámico según Ubicación Seleccionada -->
+                                    <Tag 
+                                        v-if="product.track_inventory" 
+                                        :severity="getProductStock(product) > 0 ? 'success' : 'danger'" 
+                                        class="!text-[10px] !px-2 !py-0.5 !rounded-md font-bold"
+                                    >
+                                        {{ getProductStock(product) > 0 ? getProductStock(product) + ' u.' : 'Agotado' }}
                                     </Tag>
                                     <span v-else class="text-[10px] text-gray-400 font-medium">Servicio</span>
                                 </div>
@@ -159,23 +235,39 @@ const formatCurrency = (val) => new Intl.NumberFormat('es-MX', { style: 'currenc
             <!-- DERECHA: Carrito (5 columnas) -->
             <div class="md:col-span-5 flex flex-col bg-white border border-surface-200 rounded-[2rem] shadow-md overflow-hidden h-full relative z-20">
                 
-                <div class="px-6 py-5 border-b border-surface-100 flex justify-between items-center bg-gray-50/80 backdrop-blur-sm">
-                    <h3 class="font-black text-xl text-gray-800 flex items-center gap-2">
-                        <span class="w-8 h-8 flex items-center justify-center bg-indigo-100 text-indigo-600 rounded-full">
-                            <i class="pi pi-shopping-bag text-sm"></i>
+                <div class="px-4 py-5 border-b border-surface-100 flex justify-between items-center bg-gray-50/80 backdrop-blur-sm">
+                    <h3 class="font-black text-base text-gray-800 flex items-center gap-2">
+                        <span class="size-7 flex items-center justify-center bg-indigo-100 text-indigo-600 rounded-full">
+                            <i class="pi pi-shopping-bag !text-sm"></i>
                         </span>
                         Orden actual
                     </h3>
-                    <Button 
-                        v-if="cart.length"
-                        icon="pi pi-trash" 
-                        text 
-                        rounded 
-                        severity="danger" 
-                        class="!w-8 !h-8"
-                        @click="clearCart" 
-                        v-tooltip.left="'Limpiar todo'" 
-                    />
+
+                    <div class="flex items-center gap-2">
+                        <!-- Toggle Precio Empleado -->
+                        <div class="flex items-center gap-2 mr-2" v-tooltip.bottom="'Activar precio empleado'">
+                            <span class="text-xs font-bold text-gray-400 uppercase tracking-wider hidden xl:inline-block">Emp.</span>
+                            <ToggleButton 
+                                v-model="isEmployeeSale" 
+                                onLabel="ON" 
+                                offLabel="OFF" 
+                                onIcon="pi pi-id-card" 
+                                offIcon="pi pi-id-card"
+                                class="w-20 h-8 !text-xs"
+                            />
+                        </div>
+
+                        <Button 
+                            v-if="cart.length"
+                            icon="pi pi-trash" 
+                            text 
+                            rounded 
+                            severity="danger" 
+                            class="!w-8 !h-8"
+                            @click="clearCart" 
+                            v-tooltip.left="'Limpiar todo'" 
+                        />
+                    </div>
                 </div>
 
                 <div class="flex-1 overflow-y-auto p-4 space-y-3 bg-white">
@@ -186,6 +278,7 @@ const formatCurrency = (val) => new Intl.NumberFormat('es-MX', { style: 'currenc
                         <div class="text-center">
                             <p class="font-bold text-gray-400 text-lg">Ticket vacío</p>
                             <p class="text-sm text-gray-300">Selecciona productos para comenzar</p>
+                            <p v-if="isEmployeeSale" class="text-xs text-indigo-500 font-bold mt-2 bg-indigo-50 px-2 py-1 rounded inline-block">Modo Venta Empleado Activo</p>
                         </div>
                     </div>
 
@@ -216,7 +309,10 @@ const formatCurrency = (val) => new Intl.NumberFormat('es-MX', { style: 'currenc
                                 </div>
 
                                 <div class="text-right flex-shrink-0 ml-2">
-                                    <p class="text-[10px] text-gray-400 font-medium">x {{ formatCurrency(item.price) }}</p>
+                                    <p class="text-[10px] text-gray-400 font-medium">
+                                        <span v-if="isEmployeeSale" class="text-indigo-500 font-bold mr-1">Emp.</span>
+                                        x {{ formatCurrency(item.price) }}
+                                    </p>
                                     <p class="font-bold text-indigo-600 text-sm leading-none">{{ formatCurrency(item.price * item.quantity) }}</p>
                                 </div>
                             </div>
@@ -248,9 +344,8 @@ const formatCurrency = (val) => new Intl.NumberFormat('es-MX', { style: 'currenc
             </div>
         </div>
 
-        <!-- MODAL COBRO: Ancho optimizado y layout horizontal -->
+        <!-- MODAL COBRO -->
         <Dialog v-model:visible="showPaymentModal" modal :style="{ width: '700px' }" class="!rounded-[2rem] overflow-hidden" :pt="{ header: { class: '!hidden' }, content: { class: '!p-0' } }">
-            
             <div class="flex flex-col md:flex-row h-[500px] md:h-auto">
                 <!-- Columna Izquierda: Información de la Venta -->
                 <div class="w-full md:w-1/2 p-6 bg-gray-50 border-r border-gray-100 flex flex-col justify-between">
@@ -264,6 +359,7 @@ const formatCurrency = (val) => new Intl.NumberFormat('es-MX', { style: 'currenc
                             <div>
                                 <span class="text-gray-400 text-xs font-bold uppercase tracking-widest">Total a Pagar</span>
                                 <p class="text-5xl font-black text-gray-900 tracking-tighter mt-1">{{ formatCurrency(cartTotal) }}</p>
+                                <Tag v-if="isEmployeeSale" severity="info" value="Precio Empleado Aplicado" class="mt-2" />
                             </div>
 
                             <div class="bg-white p-4 rounded-2xl border border-indigo-100 shadow-sm">
@@ -283,22 +379,19 @@ const formatCurrency = (val) => new Intl.NumberFormat('es-MX', { style: 'currenc
                     </div>
                 </div>
 
-                <!-- Columna Derecha: Teclado y Acciones integradas -->
+                <!-- Columna Derecha: Teclado y Acciones -->
                 <div class="w-full md:w-1/2 p-6 bg-white">
                     <div class="grid grid-cols-4 gap-3 h-full">
-                        <!-- Fila 1 -->
                         <button v-for="n in [7,8,9]" :key="n" @click="appendNumber(n)" class="aspect-square bg-gray-50 hover:bg-gray-100 border border-gray-100 rounded-2xl text-xl font-bold text-gray-700 shadow-sm active:scale-95 transition-all">{{ n }}</button>
                         <button @click="showPaymentModal = false" class="aspect-square bg-rose-50 hover:bg-rose-100 border border-rose-100 rounded-2xl text-rose-600 shadow-sm active:scale-95 transition-all flex flex-col items-center justify-center gap-1" v-tooltip.top="'Cancelar'">
                             <i class="pi pi-times text-xl"></i>
                         </button>
 
-                        <!-- Fila 2 -->
                         <button v-for="n in [4,5,6]" :key="n" @click="appendNumber(n)" class="aspect-square bg-gray-50 hover:bg-gray-100 border border-gray-100 rounded-2xl text-xl font-bold text-gray-700 shadow-sm active:scale-95 transition-all">{{ n }}</button>
                         <button @click="backspace" class="aspect-square bg-orange-50 hover:bg-orange-100 border border-orange-100 rounded-2xl text-orange-500 shadow-sm active:scale-95 transition-all flex items-center justify-center" v-tooltip.top="'Borrar'">
                             <i class="pi pi-delete-left text-xl"></i>
                         </button>
 
-                        <!-- Fila 3 y 4 (Confirmar ocupa 2 filas) -->
                         <button v-for="n in [1,2,3]" :key="n" @click="appendNumber(n)" class="aspect-square bg-gray-50 hover:bg-gray-100 border border-gray-100 rounded-2xl text-xl font-bold text-gray-700 shadow-sm active:scale-95 transition-all">{{ n }}</button>
                         
                         <button 

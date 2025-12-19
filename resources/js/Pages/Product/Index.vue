@@ -5,6 +5,13 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import { FilterMatchMode } from '@primevue/core/api';
 import { useConfirm } from "primevue/useconfirm";
 import { useToast } from "primevue/usetoast";
+import Button from 'primevue/button';
+import DataTable from 'primevue/datatable';
+import Column from 'primevue/column';
+import IconField from 'primevue/iconfield';
+import InputIcon from 'primevue/inputicon';
+import InputText from 'primevue/inputtext';
+import Tag from 'primevue/tag';
 
 const props = defineProps({
     products: Array,
@@ -67,22 +74,38 @@ const deleteProduct = (product) => {
 
 <template>
     <AppLayout title="Productos">
-        <!-- 
-            CORRECCIÓN: 
-            Quitamos 'max-w-5xl mx-auto' y usamos 'w-full'. 
-            El Layout ya se encarga de los márgenes laterales (AppLayout tiene max-w-7xl).
-            Esto permite que la tabla respire y use el espacio disponible estilo Dashboard profesional.
-        -->
         <div class="w-full flex flex-col gap-6">
             
-            <!-- Encabezado -->
+            <!-- Encabezado con Botones de Navegación -->
             <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 class="text-3xl font-bold tracking-tight text-surface-900">Productos</h1>
                     <p class="text-surface-500 text-sm mt-1">Gestiona tu catálogo, precios e inventario.</p>
                 </div>
                 
-                <div class="flex gap-3">
+                <div class="flex flex-wrap gap-3">
+                    <!-- Botones de Acceso Rápido a Inventario -->
+                    <Link :href="route('stock-transfers.index')">
+                        <Button 
+                            label="Traspasos" 
+                            icon="pi pi-arrows-h" 
+                            severity="help" 
+                            outlined
+                            class="!font-bold shadow-sm bg-white" 
+                            rounded 
+                        />
+                    </Link>
+                    <Link :href="route('stock-adjustments.index')">
+                        <Button 
+                            label="Ajustes / Compras" 
+                            icon="pi pi-sliders-h" 
+                            severity="info" 
+                            outlined
+                            class="!font-bold shadow-sm bg-white" 
+                            rounded 
+                        />
+                    </Link>
+
                     <Link :href="route('products.create')">
                         <Button 
                             label="Nuevo Producto" 

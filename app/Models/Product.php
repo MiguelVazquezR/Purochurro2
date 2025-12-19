@@ -42,6 +42,12 @@ class Product extends Model implements HasMedia
         return $this->hasMany(Inventory::class);
     }
     
+    // Relación con Movimientos de Stock (Kardex)
+    public function stockMovements()
+    {
+        return $this->hasMany(StockMovement::class)->latest();
+    }
+    
     public function category()
     {
         return $this->belongsTo(Category::class);

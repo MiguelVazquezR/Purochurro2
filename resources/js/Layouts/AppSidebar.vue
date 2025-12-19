@@ -30,8 +30,8 @@ const menuItems = computed(() => {
     const items = [
         { label: 'Inicio', route: 'dashboard', icon: 'pi pi-home', visible: true },
         { label: 'Punto de venta', route: 'pos.index', icon: 'pi pi-shopping-bag', visible: true },
-        { label: 'Carrito', route: 'pos.index', icon: 'pi pi-shopping-cart', visible: true }, 
-        { label: 'Cocina', route: 'pos.index', icon: 'pi pi-ticket', visible: true },
+        // { label: 'Carrito', route: 'pos.index', icon: 'pi pi-shopping-cart', visible: true }, 
+        // { label: 'Cocina', route: 'pos.index', icon: 'pi pi-ticket', visible: true },
 
         { label: 'Usuarios', route: 'employees.index', icon: 'pi pi-users', visible: isAdmin.value },
         

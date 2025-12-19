@@ -28,27 +28,27 @@ class PosController extends Controller
             return Inertia::render('Pos/OpenDay');
         }
 
-        // Obtenemos los productos y mapeamos la imagen para que el frontend la reciba
-        $products = Product::where('is_active', true)
-            ->where('is_sellable', true)
-            ->withSum('inventories as stock', 'quantity') // Cargar sumatoria de stock si es útil visualizar
-            ->get()
-            ->map(function ($product) {
-                return [
-                    'id' => $product->id,
-                    'name' => $product->name,
-                    'barcode' => $product->barcode,
-                    'price' => (float) $product->price,
-                    'stock' => $product->stock ?? 0,
-                    'track_inventory' => $product->track_inventory,
-                    // Aquí obtenemos la URL de la imagen usando Spatie
-                    'image_url' => $product->getFirstMediaUrl('product_image', 'thumb'),
-                ];
-            });
-
         return Inertia::render('Pos/Terminal', [
             'operation' => $todayOperation,
-            'products' => $products,
+            // 1. Ordenamos por nombre alfabéticamente
+            'products' => Product::where('is_active', true)
+                ->where('is_sellable', true)
+                ->with('inventories') // Cargamos la relación completa
+                ->orderBy('name', 'asc') // Orden Alfabetico
+                ->get()
+                ->map(function ($product) {
+                    return [
+                        'id' => $product->id,
+                        'name' => $product->name,
+                        'barcode' => $product->barcode,
+                        'price' => (float) $product->price,
+                        'employee_price' => (float) $product->employee_price, // Enviamos precio empleado
+                        // 2. Mapeamos el stock por ubicación: { location_id: cantidad }
+                        'stocks' => $product->inventories->pluck('quantity', 'location_id'),
+                        'track_inventory' => $product->track_inventory,
+                        'image_url' => $product->getFirstMediaUrl('product_image', 'thumb'),
+                    ];
+                }),
             'locations' => Location::where('is_sales_point', true)->get(),
         ]);
     }

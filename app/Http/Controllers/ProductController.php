@@ -85,14 +85,37 @@ class ProductController extends Controller
 
     public function show(Product $product)
     {
-        $product->loadSum('inventories as stock', 'quantity');
-        $product->load('category');
+        // 1. Cargar relaciones necesarias para el desglose
+        $product->load(['category', 'inventories.location']);
+
+        // 2. Obtener historial de movimientos (Kardex)
+        $movements = $product->stockMovements()
+            ->with(['fromLocation', 'toLocation', 'user'])
+            ->latest()
+            ->limit(50) // Limitamos a los últimos 50 para no saturar la vista
+            ->get()
+            ->map(function ($mov) {
+                return [
+                    'id' => $mov->id,
+                    'date' => $mov->created_at->format('d/m/Y H:i'),
+                    'type_label' => $mov->type->label(),
+                    'type_value' => $mov->type->value,
+                    'quantity' => $mov->quantity,
+                    // Lógica para mostrar nombres de ubicaciones o placeholders si es null
+                    'from' => $mov->fromLocation ? $mov->fromLocation->name : ($mov->type->value === 'adjustment_in' || $mov->type->value === 'purchase' ? 'Externo/Ajuste' : 'N/A'),
+                    'to' => $mov->toLocation ? $mov->toLocation->name : ($mov->type->value === 'sale' ? 'Cliente Final' : 'Externo/Merma'),
+                    'user' => $mov->user->name ?? 'Sistema',
+                    'notes' => $mov->notes
+                ];
+            });
 
         return Inertia::render('Product/Show', [
             'product' => array_merge($product->toArray(), [
-                'stock' => $product->stock ?? 0,
+                // Calculamos el total sumando los inventarios cargados
+                'stock' => $product->inventories->sum('quantity'),
                 'image_url' => $product->getFirstMediaUrl('product_image'),
-            ])
+            ]),
+            'movements' => $movements
         ]);
     }
 
