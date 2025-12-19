@@ -10,8 +10,11 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::middleware(['auth:sanctum', 'verified'])->group(function () {
-    // Solo necesitamos Index (lista) y Show (detalle)
-    // No create/store/edit/destroy porque las ventas se crean en el POS y no se deben editar/borrar por seguridad.
     Route::get('/sales', [SaleController::class, 'index'])->name('sales.index');
-    Route::get('/sales/{sale}', [SaleController::class, 'show'])->name('sales.show');
+    
+    // Cambiamos el parámetro {sale} por {dailyOperation} para ver el detalle del día
+    Route::get('/sales/{dailyOperation}', [SaleController::class, 'show'])->name('sales.show');
+    
+    // Nueva ruta para procesar el corte
+    Route::post('/sales/{dailyOperation}/close', [SaleController::class, 'close'])->name('sales.close');
 });
