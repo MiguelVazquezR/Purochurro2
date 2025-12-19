@@ -28,10 +28,28 @@ class PosController extends Controller
             return Inertia::render('Pos/OpenDay');
         }
 
+        // Obtenemos los productos y mapeamos la imagen para que el frontend la reciba
+        $products = Product::where('is_active', true)
+            ->where('is_sellable', true)
+            ->withSum('inventories as stock', 'quantity') // Cargar sumatoria de stock si es útil visualizar
+            ->get()
+            ->map(function ($product) {
+                return [
+                    'id' => $product->id,
+                    'name' => $product->name,
+                    'barcode' => $product->barcode,
+                    'price' => (float) $product->price,
+                    'stock' => $product->stock ?? 0,
+                    'track_inventory' => $product->track_inventory,
+                    // Aquí obtenemos la URL de la imagen usando Spatie
+                    'image_url' => $product->getFirstMediaUrl('product_image', 'thumb'),
+                ];
+            });
+
         return Inertia::render('Pos/Terminal', [
             'operation' => $todayOperation,
-            'products' => Product::where('is_active', true)->where('is_sellable', true)->get(),
-            'locations' => Location::where('is_sales_point', true)->get(), // Solo puntos de venta
+            'products' => $products,
+            'locations' => Location::where('is_sales_point', true)->get(),
         ]);
     }
 
@@ -43,13 +61,12 @@ class PosController extends Controller
             'notes' => 'nullable|string'
         ]);
 
-        // Verificar que no exista una ya abierta hoy
         if (DailyOperation::whereDate('date', now())->exists()) {
             return back()->with('error', 'Ya existe una operación para el día de hoy.');
         }
 
         DailyOperation::create([
-            'date' => now()->toDateString(), // Guardar solo fecha, sin hora
+            'date' => now()->toDateString(),
             'cash_start' => $validated['cash_start'],
             'notes' => $validated['notes'],
             'is_closed' => false
@@ -74,7 +91,6 @@ class PosController extends Controller
 
         DB::beginTransaction();
         try {
-            // 1. Crear Cabecera de Venta
             $totalSale = 0;
             foreach ($validated['items'] as $item) {
                 $totalSale += $item['quantity'] * $item['price'];
@@ -87,11 +103,9 @@ class PosController extends Controller
                 'total' => $totalSale
             ]);
 
-            // 2. Procesar Detalles y Stock
             foreach ($validated['items'] as $item) {
                 $product = Product::find($item['product_id']);
                 
-                // Chequeo de Stock si el producto lo requiere
                 if ($product->track_inventory) {
                     $inventory = Inventory::firstOrCreate(
                         ['location_id' => $validated['location_id'], 'product_id' => $product->id],
@@ -104,11 +118,10 @@ class PosController extends Controller
 
                     $inventory->decrement('quantity', $item['quantity']);
 
-                    // Registrar Movimiento de Stock
                     StockMovement::create([
                         'product_id' => $product->id,
-                        'from_location_id' => $validated['location_id'], // Sale de aquí
-                        'to_location_id' => null, // Sale del sistema (cliente)
+                        'from_location_id' => $validated['location_id'],
+                        'to_location_id' => null,
                         'type' => StockMovementType::SALE,
                         'quantity' => $item['quantity'],
                         'user_id' => auth()->id(),
@@ -116,7 +129,6 @@ class PosController extends Controller
                     ]);
                 }
 
-                // Guardar Detalle
                 SaleDetail::create([
                     'sale_id' => $sale->id,
                     'product_id' => $product->id,
@@ -135,7 +147,7 @@ class PosController extends Controller
         }
     }
 
-    // Cerrar Caja (Corte)
+    // Cerrar Caja
     public function closeDay(Request $request)
     {
         $validated = $request->validate([

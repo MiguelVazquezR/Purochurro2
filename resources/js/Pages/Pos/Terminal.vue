@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue';
-import { Head, router, useForm } from '@inertiajs/vue3';
+import { Head, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { useToast } from "primevue/usetoast";
 import Dialog from 'primevue/dialog';
@@ -18,7 +18,6 @@ const toast = useToast();
 
 // Estados
 const cart = ref([]);
-const searchQuery = ref('');
 const selectedLocation = ref(props.locations[0]?.id);
 const showPaymentModal = ref(false);
 const processingPayment = ref(false);
@@ -31,13 +30,8 @@ const paymentForm = useForm({
     cash_received: 0,
 });
 
-// --- Lógica Carrito ---
 const filteredProducts = computed(() => {
-    if (!searchQuery.value) return props.products;
-    const q = searchQuery.value.toLowerCase();
-    return props.products.filter(p => 
-        p.name.toLowerCase().includes(q) || p.barcode?.includes(q)
-    );
+    return props.products;
 });
 
 const addToCart = (product) => {
@@ -62,6 +56,10 @@ const updateQty = (index, delta) => {
     else cart.value.splice(index, 1);
 };
 
+const removeFromCart = (index) => {
+    cart.value.splice(index, 1);
+};
+
 const clearCart = () => cart.value = [];
 
 const cartTotal = computed(() => cart.value.reduce((sum, i) => sum + (i.price * i.quantity), 0));
@@ -72,7 +70,7 @@ const appendNumber = (n) => {
     if (keypadInput.value.includes('.') && n === '.') return;
     keypadInput.value = (keypadInput.value === '0' && n !== '.') ? n.toString() : keypadInput.value + n;
 };
-const clearKeypad = () => keypadInput.value = '0'; // Se usa al cerrar modal si se desea
+const clearKeypad = () => keypadInput.value = '0';
 const backspace = () => keypadInput.value = keypadInput.value.length > 1 ? keypadInput.value.slice(0, -1) : '0';
 
 const changeAmount = computed(() => (parseFloat(keypadInput.value) || 0) - cartTotal.value);
@@ -92,7 +90,7 @@ const processSale = () => {
     
     paymentForm.post(route('pos.store-sale'), {
         onSuccess: () => {
-            toast.add({ severity: 'success', summary: 'Venta OK', detail: `Cambio: ${formatCurrency(changeAmount.value)}`, life: 5000 });
+            toast.add({ severity: 'success', summary: 'Venta exitosa', detail: `Cambio: ${formatCurrency(changeAmount.value)}`, life: 5000 });
             showPaymentModal.value = false;
             clearCart();
             processingPayment.value = false;
@@ -108,135 +106,214 @@ const formatCurrency = (val) => new Intl.NumberFormat('es-MX', { style: 'currenc
 </script>
 
 <template>
-    <AppLayout title="POS">
-        <!-- Layout Principal: Grid de 12 columnas para estabilidad -->
-        <div class="h-[calc(100vh-5rem)] p-3 gap-4 grid grid-cols-1 md:grid-cols-12 overflow-hidden bg-gray-50/50">
+    <AppLayout title="Terminal PV">
+        <div class="h-[calc(100vh-6.9rem)] p-3 gap-x-3 grid grid-cols-1 md:grid-cols-12 overflow-hidden font-sans">
             
-            <!-- IZQUIERDA: Catálogo (8 columnas) -->
-            <div class="md:col-span-8 flex flex-col bg-white border border-surface-200 rounded-3xl shadow-sm overflow-hidden h-full">
-                <!-- Header Catálogo -->
-                <div class="p-4 border-b border-surface-100 flex gap-4 items-center bg-white z-10">
-                    <div class="relative flex-1">
-                        <i class="pi pi-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
-                        <input v-model="searchQuery" type="text" placeholder="Buscar productos..." class="w-full pl-10 pr-4 py-3 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500" />
+            <!-- IZQUIERDA: Catálogo (7 columnas) -->
+            <div class="md:col-span-7 flex flex-col bg-white border border-surface-200 rounded-[2rem] shadow-md overflow-hidden h-full relative">
+                <div class="px-6 py-5 border-b border-surface-100 flex justify-between items-center bg-white/80 backdrop-blur-md sticky top-0 z-10">
+                    <div>
+                        <h2 class="text-xl font-black text-gray-800 tracking-tight">Productos</h2>
+                        <p class="text-sm text-gray-400 font-medium">{{ products.length }} items disponibles</p>
                     </div>
+
                     <div v-if="locations.length > 1" class="w-48">
-                        <Select v-model="selectedLocation" :options="locations" optionLabel="name" optionValue="id" class="w-full" placeholder="Caja" />
+                        <Select v-model="selectedLocation" :options="locations" optionLabel="name" optionValue="id" class="w-full !rounded-xl" placeholder="Seleccionar Caja" />
                     </div>
                 </div>
 
-                <!-- Grid Productos (Scroll) -->
-                <div class="flex-1 overflow-y-auto p-4 content-start">
-                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 pb-20">
+                <div class="flex-1 overflow-y-auto p-5 scroll-smooth">
+                    <div class="grid grid-cols-2 sm:grid-cols-2 xl:grid-cols-3 gap-4 pb-24">
                         <button 
                             v-for="product in filteredProducts" 
                             :key="product.id"
                             @click="addToCart(product)"
-                            class="group bg-white border border-surface-100 rounded-2xl p-3 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all text-left flex flex-col gap-2 h-full"
+                            class="group bg-white border border-surface-100 rounded-2xl p-3 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.05)] hover:shadow-[0_8px_16px_-4px_rgba(99,102,241,0.15)] hover:border-indigo-200 transition-all duration-300 text-left flex flex-col gap-3 h-full relative overflow-hidden"
                         >
-                            <div class="aspect-square rounded-xl bg-gray-100 overflow-hidden relative w-full">
-                                <img v-if="product.image_url" :src="product.image_url" class="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-                                <div v-else class="w-full h-full flex items-center justify-center text-gray-300"><i class="pi pi-image text-3xl"></i></div>
-                                <span class="absolute bottom-1 right-1 bg-white/90 px-2 py-0.5 rounded-md text-xs font-bold shadow-sm">{{ formatCurrency(product.price) }}</span>
+                            <div class="aspect-square rounded-xl bg-gray-50 overflow-hidden relative w-full shadow-inner">
+                                <img v-if="product.image_url" :src="product.image_url" class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                                <div v-else class="w-full h-full flex items-center justify-center text-gray-300"><i class="pi pi-image text-3xl opacity-50"></i></div>
+                                
+                                <span class="absolute bottom-2 right-2 bg-white/95 backdrop-blur px-2.5 py-1 rounded-lg text-xs font-black text-gray-800 shadow-sm border border-gray-100">
+                                    {{ formatCurrency(product.price) }}
+                                </span>
                             </div>
-                            <div>
-                                <p class="font-bold text-gray-800 text-sm leading-tight line-clamp-2">{{ product.name }}</p>
-                                <Tag v-if="product.track_inventory" :severity="product.stock > 0 ? 'success' : 'danger'" class="!text-[10px] !px-1.5 mt-1">{{ product.stock }} disp.</Tag>
+
+                            <div class="flex flex-col flex-1 justify-between gap-1">
+                                <p class="font-bold text-gray-700 text-sm leading-snug group-hover:text-indigo-600 transition-colors line-clamp-2">
+                                    {{ product.name }}
+                                </p>
+                                <div class="flex items-center justify-between mt-1">
+                                    <Tag v-if="product.track_inventory" :severity="product.stock > 0 ? 'success' : 'danger'" class="!text-[10px] !px-2 !py-0.5 !rounded-md font-bold">
+                                        {{ product.stock > 0 ? product.stock + ' u.' : 'Agotado' }}
+                                    </Tag>
+                                    <span v-else class="text-[10px] text-gray-400 font-medium">Servicio</span>
+                                </div>
                             </div>
                         </button>
                     </div>
-                    <!-- Empty State -->
-                    <div v-if="filteredProducts.length === 0" class="flex flex-col items-center justify-center h-64 text-gray-400">
-                        <i class="pi pi-search text-4xl mb-2"></i>
-                        <p>No se encontraron productos</p>
-                    </div>
                 </div>
+                <div class="absolute bottom-0 left-0 w-full h-12 bg-gradient-to-t from-white to-transparent pointer-events-none"></div>
             </div>
 
-            <!-- DERECHA: Carrito (4 columnas) -->
-            <div class="md:col-span-4 flex flex-col bg-white border border-surface-200 rounded-3xl shadow-xl overflow-hidden h-full">
-                <!-- Header Carrito -->
-                <div class="p-4 border-b border-surface-100 flex justify-between items-center bg-gray-50">
-                    <h3 class="font-bold text-gray-800 flex items-center gap-2"><i class="pi pi-shopping-cart text-indigo-500"></i> Orden</h3>
-                    <Button icon="pi pi-trash" text rounded severity="danger" @click="clearCart" :disabled="!cart.length" v-tooltip="'Limpiar'" />
+            <!-- DERECHA: Carrito (5 columnas) -->
+            <div class="md:col-span-5 flex flex-col bg-white border border-surface-200 rounded-[2rem] shadow-md overflow-hidden h-full relative z-20">
+                
+                <div class="px-6 py-5 border-b border-surface-100 flex justify-between items-center bg-gray-50/80 backdrop-blur-sm">
+                    <h3 class="font-black text-xl text-gray-800 flex items-center gap-2">
+                        <span class="w-8 h-8 flex items-center justify-center bg-indigo-100 text-indigo-600 rounded-full">
+                            <i class="pi pi-shopping-bag text-sm"></i>
+                        </span>
+                        Orden actual
+                    </h3>
+                    <Button 
+                        v-if="cart.length"
+                        icon="pi pi-trash" 
+                        text 
+                        rounded 
+                        severity="danger" 
+                        class="!w-8 !h-8"
+                        @click="clearCart" 
+                        v-tooltip.left="'Limpiar todo'" 
+                    />
                 </div>
 
-                <!-- Lista Items -->
-                <div class="flex-1 overflow-y-auto p-4 space-y-3">
-                    <div v-if="!cart.length" class="h-full flex flex-col items-center justify-center text-gray-400 opacity-50">
-                        <i class="pi pi-receipt text-6xl mb-2"></i>
-                        <p class="text-sm">Ticket vacío</p>
+                <div class="flex-1 overflow-y-auto p-4 space-y-3 bg-white">
+                    <div v-if="!cart.length" class="h-full flex flex-col items-center justify-center text-gray-300 gap-4">
+                        <div class="w-24 h-24 bg-gray-50 rounded-full flex items-center justify-center mb-2">
+                            <i class="pi pi-receipt !text-4xl text-gray-200"></i>
+                        </div>
+                        <div class="text-center">
+                            <p class="font-bold text-gray-400 text-lg">Ticket vacío</p>
+                            <p class="text-sm text-gray-300">Selecciona productos para comenzar</p>
+                        </div>
                     </div>
-                    <div v-for="(item, idx) in cart" :key="idx" class="flex gap-3 items-center bg-white p-2 rounded-xl border border-gray-100 shadow-sm">
-                        <!-- Controles Cantidad Verticales -->
-                        <div class="flex flex-col bg-gray-50 rounded-lg p-0.5">
-                            <button @click="updateQty(idx, 1)" class="w-8 h-7 flex items-center justify-center text-green-600 hover:bg-white rounded shadow-sm"><i class="pi pi-plus text-xs"></i></button>
-                            <span class="text-center text-sm font-bold py-0.5">{{ item.quantity }}</span>
-                            <button @click="updateQty(idx, -1)" class="w-8 h-7 flex items-center justify-center text-red-500 hover:bg-white rounded shadow-sm"><i class="pi pi-minus text-xs"></i></button>
+
+                    <!-- Item Card Optimizado -->
+                    <div 
+                        v-for="(item, idx) in cart" 
+                        :key="idx" 
+                        class="flex gap-3 bg-white p-2.5 rounded-2xl border border-gray-100 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.03)] items-center"
+                    >
+                        <div class="size-12 rounded-xl bg-gray-50 overflow-hidden flex-shrink-0 border border-gray-100 self-center">
+                            <img v-if="item.image" :src="item.image" class="w-full h-full object-cover" />
+                            <div v-else class="w-full h-full flex items-center justify-center"><i class="pi pi-image text-gray-300 text-lg"></i></div>
                         </div>
-                        <div class="flex-1 min-w-0">
-                            <p class="font-bold text-sm text-gray-800 truncate">{{ item.name }}</p>
-                            <p class="text-xs text-gray-500">{{ formatCurrency(item.price) }}</p>
+
+                        <div class="flex-1 flex flex-col min-w-0 self-stretch justify-between py-0.5">
+                            <div class="flex justify-between items-start gap-2">
+                                <p class="font-bold text-gray-800 text-sm leading-tight break-words">{{ item.name }}</p>
+                                <button @click="removeFromCart(idx)" class="text-gray-300 hover:text-red-500 transition-colors p-1 -mt-1 -mr-1">
+                                    <i class="pi pi-times text-xs"></i>
+                                </button>
+                            </div>
+
+                            <div class="flex justify-between items-end mt-1">
+                                <div class="flex items-center bg-gray-100 rounded-lg h-8">
+                                    <button @click="updateQty(idx, -1)" class="w-7 h-full flex items-center justify-center text-gray-500 hover:text-red-500 hover:bg-white rounded-l-lg transition-all active:bg-gray-200"><i class="pi pi-minus !text-[11px] font-bold"></i></button>
+                                    <span class="w-5 text-center text-xs font-bold text-gray-800">{{ item.quantity }}</span>
+                                    <button @click="updateQty(idx, 1)" class="w-7 h-full flex items-center justify-center text-gray-500 hover:text-green-600 hover:bg-white rounded-r-lg transition-all active:bg-gray-200"><i class="pi pi-plus !text-[11px] font-bold"></i></button>
+                                </div>
+
+                                <div class="text-right flex-shrink-0 ml-2">
+                                    <p class="text-[10px] text-gray-400 font-medium">x {{ formatCurrency(item.price) }}</p>
+                                    <p class="font-bold text-indigo-600 text-sm leading-none">{{ formatCurrency(item.price * item.quantity) }}</p>
+                                </div>
+                            </div>
                         </div>
-                        <p class="font-bold text-indigo-600 text-sm">{{ formatCurrency(item.price * item.quantity) }}</p>
                     </div>
                 </div>
 
-                <!-- Footer Totales -->
-                <div class="p-4 bg-gray-50 border-t border-surface-200 space-y-3">
-                    <div class="flex justify-between items-end">
-                        <span class="text-gray-500 text-sm">{{ cartCount }} artículos</span>
-                        <span class="text-3xl font-black text-gray-900">{{ formatCurrency(cartTotal) }}</span>
+                <div class="p-5 bg-gray-50 border-t border-surface-200 z-20">
+                    <div class="flex justify-between items-end mb-4">
+                        <div class="text-gray-500 text-sm font-medium flex flex-col">
+                            <span>Total a pagar</span>
+                            <span class="text-xs text-gray-400">{{ cartCount }} artículos</span>
+                        </div>
+                        <span class="text-[33px] font-black text-gray-900 tracking-tight">{{ formatCurrency(cartTotal) }}</span>
                     </div>
+                    
                     <button 
                         @click="openPayment" 
-                        class="w-full py-4 rounded-xl font-bold text-lg text-white shadow-lg transition-all flex justify-center items-center gap-2"
-                        :class="cart.length ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200' : 'bg-gray-300 cursor-not-allowed'"
+                        class="w-full py-4 rounded-xl font-bold text-lg text-white shadow-lg shadow-indigo-200 transition-all flex justify-between items-center px-6 group active:scale-[0.98]"
+                        :class="cart.length ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-gray-300 cursor-not-allowed shadow-none'"
                         :disabled="!cart.length"
                     >
                         <span>Cobrar</span>
-                        <i class="pi pi-arrow-right"></i>
+                        <div class="bg-white/20 rounded-lg p-1.5 group-hover:translate-x-1 transition-transform">
+                            <i class="pi pi-arrow-right text-sm"></i>
+                        </div>
                     </button>
                 </div>
             </div>
         </div>
 
-        <!-- MODAL COBRO -->
-        <Dialog v-model:visible="showPaymentModal" modal header="Cobrar (Efectivo)" :style="{ width: '380px' }">
-            <div class="flex flex-col gap-4">
-                <div class="text-center py-2">
-                    <span class="text-gray-500 text-xs uppercase tracking-wider">Total a Pagar</span>
-                    <p class="text-4xl font-black text-gray-900">{{ formatCurrency(cartTotal) }}</p>
+        <!-- MODAL COBRO: Ancho optimizado y layout horizontal -->
+        <Dialog v-model:visible="showPaymentModal" modal :style="{ width: '700px' }" class="!rounded-[2rem] overflow-hidden" :pt="{ header: { class: '!hidden' }, content: { class: '!p-0' } }">
+            
+            <div class="flex flex-col md:flex-row h-[500px] md:h-auto">
+                <!-- Columna Izquierda: Información de la Venta -->
+                <div class="w-full md:w-1/2 p-6 bg-gray-50 border-r border-gray-100 flex flex-col justify-between">
+                    <div>
+                        <div class="flex items-center gap-2 mb-6">
+                            <div class="bg-indigo-100 size-7 rounded-xl text-indigo-600 flex items-center justify-center"><i class="pi pi-wallet"></i></div>
+                            <span class="font-bold text-xl text-gray-800">Cobro</span>
+                        </div>
+
+                        <div class="space-y-6">
+                            <div>
+                                <span class="text-gray-400 text-xs font-bold uppercase tracking-widest">Total a Pagar</span>
+                                <p class="text-5xl font-black text-gray-900 tracking-tighter mt-1">{{ formatCurrency(cartTotal) }}</p>
+                            </div>
+
+                            <div class="bg-white p-4 rounded-2xl border border-indigo-100 shadow-sm">
+                                <span class="text-indigo-900 font-bold text-xs uppercase tracking-wider block mb-1">Efectivo Recibido</span>
+                                <span class="text-3xl font-mono font-bold text-indigo-600 block truncate">{{ keypadInput === '' ? '$0.00' : '$' + keypadInput }}</span>
+                            </div>
+
+                            <div class="flex justify-between items-end border-b border-dashed border-gray-300 pb-2">
+                                <span class="font-bold text-gray-500 text-lg">Cambio</span>
+                                <span class="text-3xl font-bold" :class="changeAmount >= 0 ? 'text-emerald-500' : 'text-rose-500'">{{ formatCurrency(Math.max(0, changeAmount)) }}</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <p class="text-xs text-center text-gray-400">Verifique el monto antes de confirmar.</p>
+                    </div>
                 </div>
 
-                <div class="bg-indigo-50 p-4 rounded-xl border border-indigo-100 flex justify-between items-center">
-                    <span class="text-indigo-800 font-bold text-sm">Recibido:</span>
-                    <span class="text-2xl font-mono font-bold text-indigo-700">{{ keypadInput === '' ? '$0.00' : '$' + keypadInput }}</span>
-                </div>
+                <!-- Columna Derecha: Teclado y Acciones integradas -->
+                <div class="w-full md:w-1/2 p-6 bg-white">
+                    <div class="grid grid-cols-4 gap-3 h-full">
+                        <!-- Fila 1 -->
+                        <button v-for="n in [7,8,9]" :key="n" @click="appendNumber(n)" class="aspect-square bg-gray-50 hover:bg-gray-100 border border-gray-100 rounded-2xl text-xl font-bold text-gray-700 shadow-sm active:scale-95 transition-all">{{ n }}</button>
+                        <button @click="showPaymentModal = false" class="aspect-square bg-rose-50 hover:bg-rose-100 border border-rose-100 rounded-2xl text-rose-600 shadow-sm active:scale-95 transition-all flex flex-col items-center justify-center gap-1" v-tooltip.top="'Cancelar'">
+                            <i class="pi pi-times text-xl"></i>
+                        </button>
 
-                <div class="flex justify-between items-center px-2">
-                    <span class="font-bold text-gray-600">Cambio:</span>
-                    <span class="text-xl font-bold" :class="changeAmount >= 0 ? 'text-green-600' : 'text-red-500'">{{ formatCurrency(Math.max(0, changeAmount)) }}</span>
-                </div>
+                        <!-- Fila 2 -->
+                        <button v-for="n in [4,5,6]" :key="n" @click="appendNumber(n)" class="aspect-square bg-gray-50 hover:bg-gray-100 border border-gray-100 rounded-2xl text-xl font-bold text-gray-700 shadow-sm active:scale-95 transition-all">{{ n }}</button>
+                        <button @click="backspace" class="aspect-square bg-orange-50 hover:bg-orange-100 border border-orange-100 rounded-2xl text-orange-500 shadow-sm active:scale-95 transition-all flex items-center justify-center" v-tooltip.top="'Borrar'">
+                            <i class="pi pi-delete-left text-xl"></i>
+                        </button>
 
-                <!-- Teclado Numérico -->
-                <div class="grid grid-cols-3 gap-2">
-                    <button v-for="n in [1,2,3,4,5,6,7,8,9]" :key="n" @click="appendNumber(n)" class="h-12 bg-white border border-gray-200 rounded-lg text-xl font-bold shadow-sm active:bg-gray-100">{{ n }}</button>
-                    <button @click="appendNumber('.')" class="h-12 bg-white border border-gray-200 rounded-lg text-xl font-bold shadow-sm active:bg-gray-100">.</button>
-                    <button @click="appendNumber(0)" class="h-12 bg-white border border-gray-200 rounded-lg text-xl font-bold shadow-sm active:bg-gray-100">0</button>
-                    <button @click="backspace" class="h-12 bg-red-50 border border-red-100 rounded-lg text-red-500 shadow-sm active:bg-red-100 flex items-center justify-center"><i class="pi pi-delete-left text-xl"></i></button>
-                </div>
+                        <!-- Fila 3 y 4 (Confirmar ocupa 2 filas) -->
+                        <button v-for="n in [1,2,3]" :key="n" @click="appendNumber(n)" class="aspect-square bg-gray-50 hover:bg-gray-100 border border-gray-100 rounded-2xl text-xl font-bold text-gray-700 shadow-sm active:scale-95 transition-all">{{ n }}</button>
+                        
+                        <button 
+                            @click="processSale" 
+                            :disabled="!canPay || processingPayment"
+                            class="row-span-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-2xl font-bold shadow-lg shadow-indigo-200 active:scale-95 transition-all flex flex-col items-center justify-center gap-2 p-2"
+                        >
+                            <i v-if="processingPayment" class="pi pi-spin pi-spinner text-2xl"></i>
+                            <i v-else class="pi pi-check text-2xl"></i>
+                            <span class="text-xs uppercase tracking-widest">Cobrar</span>
+                        </button>
 
-                <div class="grid grid-cols-2 gap-3 mt-2">
-                    <Button label="Cancelar" severity="secondary" outlined @click="showPaymentModal = false" />
-                    <Button 
-                        label="Confirmar" 
-                        severity="success" 
-                        icon="pi pi-check" 
-                        @click="processSale" 
-                        :loading="processingPayment" 
-                        :disabled="!canPay" 
-                    />
+                        <button @click="appendNumber(0)" class="col-span-2 h-full bg-gray-50 hover:bg-gray-100 border border-gray-100 rounded-2xl text-xl font-bold text-gray-700 shadow-sm active:scale-95 transition-all">0</button>
+                        <button @click="appendNumber('.')" class="aspect-square bg-gray-50 hover:bg-gray-100 border border-gray-100 rounded-2xl text-xl font-bold text-gray-700 shadow-sm active:scale-95 transition-all">.</button>
+                    </div>
                 </div>
             </div>
         </Dialog>
@@ -244,19 +321,17 @@ const formatCurrency = (val) => new Intl.NumberFormat('es-MX', { style: 'currenc
 </template>
 
 <style scoped>
-/* Ocultar scrollbar default pero permitir scroll */
 ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 5px;
 }
 ::-webkit-scrollbar-track {
     background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-    background: #cbd5e1;
-    border-radius: 10px;
+    background: #e2e8f0;
+    border-radius: 20px;
 }
 ::-webkit-scrollbar-thumb:hover {
-    background: #94a3b8;
+    background: #cbd5e1;
 }
 </style>
