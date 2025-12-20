@@ -169,5 +169,6 @@ return [
         'birth_date' => 'fecha de nacimiento',
         'phone' => 'teléfono',
         'address' => 'dirección',
+        'employee_reason' => 'motivo',
     ],
 ];

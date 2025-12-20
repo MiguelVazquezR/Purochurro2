@@ -163,9 +163,7 @@ const getShiftBadgeStyle = (shift) => {
 </script>
 
 <template>
-    <AppLayout title="Asignación de Horarios">
-        <ConfirmDialog />
-        
+    <AppLayout title="Asignación de horarios">        
         <div class="w-full flex flex-col gap-6">
             
             <!-- Encabezado y Controles -->

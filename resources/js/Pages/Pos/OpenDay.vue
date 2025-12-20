@@ -64,7 +64,7 @@ const formatCurrency = (value) => {
 
 <template>
     <AppLayout title="Apertura de caja">
-        <div class="h-[calc(100vh-5rem)] flex items-center justify-center p-4">
+        <div class="h-[calc(100vh-7rem)] flex items-center justify-center p-4">
             
             <div class="w-full max-w-4xl bg-white/80 backdrop-blur-xl border border-surface-200 rounded-3xl shadow-2xl overflow-hidden flex flex-col md:flex-row h-full md:h-auto min-h-[500px]">
                 

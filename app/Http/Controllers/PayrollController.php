@@ -25,7 +25,16 @@ class PayrollController extends Controller
         for ($i = 0; $i < 12; $i++) {
             $start = $currentStart->copy()->subWeeks($i);
             $end = $start->copy()->endOfWeek(Carbon::SATURDAY);
-            $isClosed = PayrollReceipt::where('start_date', $start->format('Y-m-d'))->exists();
+            
+            // Si es admin, ve si existe ALGÚN recibo. Si es empleado, ve si existe SU recibo.
+            if (auth()->id() === 1) {
+                $isClosed = PayrollReceipt::where('start_date', $start->format('Y-m-d'))->exists();
+            } else {
+                $employee = Employee::where('user_id', auth()->id())->first();
+                $isClosed = $employee && PayrollReceipt::where('start_date', $start->format('Y-m-d'))
+                    ->where('employee_id', $employee->id)
+                    ->exists();
+            }
 
             $weeks[] = [
                 'label' => "Semana del {$start->format('d M')} al {$end->format('d M Y')}",
@@ -43,6 +52,12 @@ class PayrollController extends Controller
 
     public function week(Request $request, string $startDate)
     {
+        // --- SEGURIDAD DE ROLES ---
+        if (auth()->id() !== 1) {
+            return $this->employeeWeekView($startDate);
+        }
+
+        // === VISTA DE ADMINISTRADOR (Lógica Original) ===
         $start = Carbon::parse($startDate)->startOfWeek(Carbon::SUNDAY);
         $end = $start->copy()->endOfWeek(Carbon::SATURDAY);
 
@@ -138,6 +153,92 @@ class PayrollController extends Controller
         ]);
     }
 
+    /**
+     * VISTA EXCLUSIVA DE EMPLEADO
+     */
+    private function employeeWeekView(string $startDate)
+    {
+        $user = auth()->user();
+        $employee = Employee::where('user_id', $user->id)->firstOrFail();
+
+        $start = Carbon::parse($startDate)->startOfWeek(Carbon::SUNDAY);
+        $end = $start->copy()->endOfWeek(Carbon::SATURDAY);
+
+        $receipt = PayrollReceipt::where('employee_id', $employee->id)
+            ->where('start_date', $start->format('Y-m-d'))
+            ->first();
+
+        $months = array_unique([$start->month, $end->month]);
+        $holidaysLookup = Holiday::whereIn(DB::raw('MONTH(date)'), $months)
+            ->get()
+            ->keyBy(fn($h) => Carbon::parse($h->date)->format('m-d'));
+
+        $days = [];
+        $period = $start->copy();
+
+        while ($period <= $end) {
+            $dateStr = $period->format('Y-m-d');
+            $monthDay = $period->format('m-d');
+            
+            $attendance = Attendance::where('employee_id', $employee->id)
+                ->where('date', $dateStr)
+                ->first();
+
+            $schedule = WorkSchedule::with('shift')
+                ->where('employee_id', $employee->id)
+                ->where('date', $dateStr)
+                ->first();
+
+            $holiday = $holidaysLookup->get($monthDay);
+            
+            $incidentLabel = 'Asistencia';
+            if ($attendance) {
+                $incidentLabel = $attendance->incident_type->label();
+            } else {
+                if ($schedule && $schedule->shift_id) {
+                    $incidentLabel = Carbon::parse($dateStr)->isFuture() ? 'Programado' : 'Falta / Pendiente';
+                } else {
+                    $incidentLabel = 'Descanso';
+                }
+            }
+
+            $days[] = [
+                'date' => $dateStr,
+                'day_name' => $period->locale('es')->dayName,
+                'incident_type' => $attendance?->incident_type?->value,
+                'incident_label' => $incidentLabel,
+                'check_in' => $attendance?->check_in ? Carbon::parse($attendance->check_in)->format('H:i') : null,
+                'check_out' => $attendance?->check_out ? Carbon::parse($attendance->check_out)->format('H:i') : null,
+                'is_late' => $attendance?->is_late ?? false,
+                'schedule_shift' => $schedule?->shift?->name,
+                'shift_color' => $schedule?->shift?->color,
+                'is_rest_day' => (!$schedule || !$schedule->shift_id),
+                // AGREGADO: multiplier para mostrar en la vista
+                'holiday_data' => $holiday ? [
+                    'name' => $holiday->name,
+                    'multiplier' => $holiday->pay_multiplier ?? 2.0
+                ] : null,
+            ];
+
+            $period->addDay();
+        }
+
+        return Inertia::render('Payroll/EmployeeWeek', [
+            'startDate' => $start->format('Y-m-d'),
+            'endDate' => $end->format('Y-m-d'),
+            'days' => $days,
+            'receipt' => $receipt ? [
+                'total_pay' => $receipt->total_pay,
+                'days_worked' => $receipt->days_worked,
+                'paid_at' => $receipt->paid_at,
+            ] : null,
+            'employee' => [
+                'full_name' => $employee->full_name,
+                'vacation_balance' => $employee->vacation_balance
+            ],
+        ]);
+    }
+
     public function receipts(Request $request, string $startDate)
     {
         $start = Carbon::parse($startDate)->startOfWeek(Carbon::SUNDAY);
@@ -152,7 +253,6 @@ class PayrollController extends Controller
         $receiptsData = [];
 
         foreach ($employees as $employee) {
-            // El servicio ahora retorna 'totals_breakdown' y 'breakdown' detallado con categorías de festivos
             $calculation = $payrollService->calculate($employee, $start, $end);
             $receiptsData[] = $calculation;
         }
@@ -232,6 +332,9 @@ class PayrollController extends Controller
 
     public function settlement(Request $request, string $startDate)
     {
+        // Seguridad extra: Solo admin puede ver pre-nómina
+        if (auth()->id() !== 1) abort(403);
+
         $start = Carbon::parse($startDate)->startOfWeek(Carbon::SUNDAY);
         $end = $start->copy()->endOfWeek(Carbon::SATURDAY);
 
@@ -262,6 +365,8 @@ class PayrollController extends Controller
 
     public function storeSettlement(Request $request)
     {
+        if (auth()->id() !== 1) abort(403);
+
         $request->validate([
             'start_date' => 'required|date',
             'mark_as_paid' => 'boolean'
@@ -293,7 +398,6 @@ class PayrollController extends Controller
                     'total_pay' => $calc['total_pay'],
                     'days_worked' => $calc['days_worked'],
                     'total_bonuses' => $calc['total_bonuses'],
-                    // Ahora breakdown_data contiene 'totals_breakdown' y los detalles con 'category'
                     'breakdown_data' => $calc['breakdown'], 
                     'paid_at' => $request->mark_as_paid ? now() : null,
                 ]);
