@@ -5,11 +5,21 @@ namespace Database\Seeders;
 use App\Enums\IncidentType;
 use App\Models\Attendance;
 use App\Models\Bonus;
+use App\Models\Category;
+use App\Models\DailyOperation;
 use App\Models\Employee;
 use App\Models\Holiday;
+use App\Models\IncidentRequest;
+use App\Models\Inventory;
+use App\Models\Location;
+use App\Models\PayrollReceipt;
+use App\Models\Product;
+use App\Models\Sale;
+use App\Models\SaleDetail;
 use App\Models\Shift;
 use App\Models\User;
 use App\Models\WorkSchedule;
+use App\Services\PayrollService;
 use Carbon\Carbon;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
@@ -18,6 +28,10 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
+        // 0. Ejecutar Seeders Dependientes
+        $this->call(LocationSeeder::class);
+        $locationCarrito = Location::where('slug', 'carrito')->first();
+
         // 1. Crear Turnos
         $shiftMorning = Shift::create([
             'name' => 'Matutino',
@@ -38,11 +52,10 @@ class DatabaseSeeder extends Seeder
         // 2. Crear Bonos
         $bonusPunctuality = Bonus::create([
             'name' => 'Bono de Puntualidad',
-            'description' => 'Cero retardos en la quincena',
-            'amount' => 500.00,
+            'description' => 'Cero retardos en el periodo',
+            'amount' => 200.00,
             'type' => 'fixed',
             'is_active' => true,
-            // Ejemplo de regla automática (si implementaste la lógica)
             'rule_config' => [
                 'concept' => 'late_minutes',
                 'operator' => '<=',
@@ -52,130 +65,285 @@ class DatabaseSeeder extends Seeder
             ]
         ]);
 
-        Bonus::create([
-            'name' => 'Comisión Ventas',
-            'description' => 'Porcentaje sobre ventas individuales',
-            'amount' => 5.00,
-            'type' => 'percentage',
+        $bonusSales = Bonus::create([
+            'name' => 'Bono Venta Semanal',
+            'description' => 'Meta de venta superada',
+            'amount' => 300.00,
+            'type' => 'fixed',
             'is_active' => true,
         ]);
 
-        // 3. Crear Días Festivos (Ejemplo: Navidad y Año Nuevo)
+        // 3. Crear Días Festivos (Próximos)
         Holiday::create([
-            'name' => 'Navidad',
-            'date' => Carbon::create(null, 12, 25), // Año actual
+            'name' => 'Año Nuevo',
+            'date' => Carbon::now()->startOfYear()->addYear(),
+            'mandatory_rest' => true,
+            'pay_multiplier' => 3.0,
+        ]);
+        
+        // Un festivo simulado la semana pasada para probar pago doble
+        $pastHolidayDate = Carbon::now()->subWeek()->startOfWeek()->addDay(2); // Miércoles pasado
+        Holiday::create([
+            'name' => 'Festivo Local (Prueba)',
+            'date' => $pastHolidayDate,
             'mandatory_rest' => true,
             'pay_multiplier' => 2.0,
         ]);
 
-        // 4. Crear Admin / Empleado Principal
-        // Usuario ID: 1
+        // 4. Catálogo de Productos (Para POS)
+        $catChurros = Category::create(['name' => 'Churros']);
+        $catBebidas = Category::create(['name' => 'Bebidas']);
+
+        $products = [
+            ['name' => 'Churro Clásico', 'price' => 25, 'cat' => $catChurros->id],
+            ['name' => 'Churro Relleno', 'price' => 35, 'cat' => $catChurros->id],
+            ['name' => 'Chocolate Caliente', 'price' => 45, 'cat' => $catBebidas->id],
+            ['name' => 'Café Americano', 'price' => 30, 'cat' => $catBebidas->id],
+        ];
+
+        $productModels = [];
+        foreach ($products as $p) {
+            $prod = Product::create([
+                'name' => $p['name'],
+                'category_id' => $p['cat'],
+                'price' => $p['price'],
+                'cost' => $p['price'] * 0.4,
+                'is_sellable' => true,
+                'track_inventory' => true,
+                'is_active' => true,
+            ]);
+            
+            // Inventario Inicial
+            Inventory::create([
+                'location_id' => $locationCarrito->id,
+                'product_id' => $prod->id,
+                'quantity' => 100
+            ]);
+            
+            $productModels[] = $prod;
+        }
+
+        // 5. Crear Usuarios y Empleados
         $adminUser = User::create([
             'name' => 'Administrador',
             'email' => 'admin@purochurro.com',
             'password' => Hash::make('password'),
         ]);
 
-        // Empleado ligado al Admin (opcional, pero útil si el admin checa)
-        // $adminEmployee = Employee::create([
-        //     'user_id' => $adminUser->id,
-        //     'first_name' => 'Admin',
-        //     'last_name' => 'System',
-        //     'birth_date' => '1990-01-01',
-        //     'phone' => '3300000000',
-        //     'address' => 'Oficina Central',
-        //     'email' => 'admin@purochurro.com',
-        //     'hired_at' => '2020-01-01',
-        //     'base_salary' => 5000.00, // Semanal
-        //     'vacation_balance' => 12,
-        //     'is_active' => true,
-        // ]);
-
-        // 5. Crear Empleados de Prueba
+        // Empleados
         $employeesData = [
-            ['Juan', 'Pérez', 'juan@test.com', 2500],
-            ['María', 'González', 'maria@test.com', 2800],
-            ['Carlos', 'López', 'carlos@test.com', 2200],
+            // Nombre, Apellido, Email, Salario, FechaNacimiento (Agregado explícito para evitar error 1364)
+            ['Juan', 'Vendedor', 'juan@test.com', 300.00, '1995-05-15'], 
+            ['Maria', 'Encargada', 'maria@test.com', 450.00, '1992-08-20'],
+            ['Pedro', 'Nuevo', 'pedro@test.com', 250.00, '2000-01-10'],
         ];
+
+        $employeesModels = [];
 
         foreach ($employeesData as $idx => $data) {
             $user = User::create([
                 'name' => "$data[0] $data[1]",
                 'email' => $data[2],
-                'password' => Hash::make('password'), // Password genérico
+                'password' => Hash::make('password'),
             ]);
 
-            $employee = Employee::create([
+            $emp = Employee::create([
                 'user_id' => $user->id,
                 'first_name' => $data[0],
                 'last_name' => $data[1],
-                'birth_date' => '1995-05-15',
-                'phone' => '331234567' . $idx,
-                'address' => 'Domicilio Conocido ' . $idx,
-                'email' => $data[2],
-                'hired_at' => Carbon::now()->subYears(2),
+                'birth_date' => $data[4], // Usamos el dato explícito del array
+                'phone' => '333333333' . $idx,
+                'address' => 'Conocido',
+                'hired_at' => Carbon::now()->subMonths(6),
                 'base_salary' => $data[3],
-                'vacation_balance' => 6,
+                'vacation_balance' => 6 + $idx, // Días disponibles
                 'is_active' => true,
+                'default_schedule_template' => [
+                    'monday' => $shiftMorning->id,
+                    'tuesday' => $shiftMorning->id,
+                    'wednesday' => $shiftMorning->id,
+                    'thursday' => $shiftMorning->id,
+                    'friday' => $shiftMorning->id,
+                    'saturday' => $shiftEvening->id,
+                    'sunday' => null // Descanso
+                ]
             ]);
 
-            // Asignar el bono de puntualidad a todos
-            $employee->bonuses()->attach($bonusPunctuality->id, [
-                'assigned_date' => Carbon::now(),
-                'amount' => $bonusPunctuality->amount
+            // Asignar bono recurrente
+            $emp->recurringBonuses()->attach($bonusPunctuality->id, [
+                'amount' => 200,
+                'is_active' => true
             ]);
 
-            // 6. Generar Asistencias y Horarios para la Semana Actual
-            $startOfWeek = Carbon::now()->startOfWeek();
+            $employeesModels[] = $emp;
+        }
+
+        // 6. SIMULACIÓN DE HISTORIAL (2 SEMANAS)
+        
+        // Rango: Hace 2 semanas hasta hoy
+        $simulationStart = Carbon::now()->subWeeks(1)->startOfWeek(Carbon::SUNDAY); // Semana pasada
+        $today = Carbon::now();
+
+        $currentDate = $simulationStart->copy();
+
+        while ($currentDate <= $today) {
+            $dateStr = $currentDate->format('Y-m-d');
+            $isPast = $currentDate < Carbon::now()->startOfDay();
             
-            // Simulamos datos para los últimos 5 días
-            for ($i = 0; $i < 5; $i++) {
-                $date = $startOfWeek->copy()->addDays($i);
-                
-                // Asignar Horario (WorkSchedule)
-                WorkSchedule::create([
-                    'employee_id' => $employee->id,
-                    'shift_id' => $shiftMorning->id,
-                    'date' => $date,
-                    'is_published' => true,
-                ]);
+            // A. Crear Operación Diaria (Caja)
+            // Simular que abren caja todos los días excepto domingos (opcional)
+            $dailyOp = DailyOperation::create([
+                'date' => $dateStr,
+                'cash_start' => 500.00,
+                'cash_end' => $isPast ? 500.00 : null, // Si ya pasó, cerramos caja luego
+                'is_closed' => false, // La cerramos al final del loop si es pasado
+                'notes' => 'Operación normal'
+            ]);
 
-                // Simular Asistencia (Solo si la fecha es hoy o anterior)
-                if ($date <= Carbon::now()) {
-                    $checkIn = '09:00:00';
-                    $checkOut = '17:00:00';
-                    $incident = IncidentType::ASISTENCIA;
-                    $isLate = false;
+            // Asignar personal a la caja (Pivot DailyOperationEmployee)
+            foreach ($employeesModels as $emp) {
+                // Solo si es su turno según template (simplificado)
+                $dayName = strtolower($currentDate->format('l'));
+                $shiftId = $emp->default_schedule_template[$dayName] ?? null;
 
-                    // Escenarios aleatorios para probar la vista de Nómina
-                    if ($idx == 0 && $i == 1) { // Juan llega tarde el martes
-                        $checkIn = '09:45:00';
-                        $isLate = true;
-                    }
-                    if ($idx == 1 && $i == 2) { // María falta el miércoles
-                        $checkIn = null;
-                        $checkOut = null;
-                        $incident = IncidentType::FALTA_INJUSTIFICADA;
-                    }
+                if ($shiftId) {
+                    $dailyOp->staff()->attach($emp->id, ['location_id' => $locationCarrito->id]);
+                    
+                    // Crear Horario (WorkSchedule)
+                    WorkSchedule::firstOrCreate([
+                        'employee_id' => $emp->id,
+                        'date' => $dateStr
+                    ], [
+                        'shift_id' => $shiftId,
+                        'is_published' => true
+                    ]);
 
-                    if ($incident === IncidentType::ASISTENCIA) {
+                    // B. Simular Asistencia e Incidencias
+                    if ($isPast) {
+                        $checkIn = '09:00:00';
+                        $checkOut = '17:00:00';
+                        $incident = IncidentType::ASISTENCIA;
+                        $late = false;
+
+                        // Escenarios de prueba
+                        if ($emp->first_name === 'Pedro' && $currentDate->isWednesday()) {
+                            $checkIn = '09:40:00'; // Retardo
+                            $late = true;
+                        }
+                        if ($emp->first_name === 'Maria' && $currentDate->dayOfWeek === $pastHolidayDate->dayOfWeek && $currentDate->weekOfYear === $pastHolidayDate->weekOfYear) {
+                            // Maria descansó el festivo (pagado)
+                            $incident = IncidentType::DIA_FESTIVO;
+                            $checkIn = null;
+                            $checkOut = null;
+                        }
+
                         Attendance::create([
-                            'employee_id' => $employee->id,
-                            'date' => $date,
+                            'employee_id' => $emp->id,
+                            'date' => $dateStr,
                             'check_in' => $checkIn,
                             'check_out' => $checkOut,
                             'incident_type' => $incident,
-                            'is_late' => $isLate,
-                        ]);
-                    } else {
-                        Attendance::create([
-                            'employee_id' => $employee->id,
-                            'date' => $date,
-                            'incident_type' => $incident,
+                            'is_late' => $late
                         ]);
                     }
                 }
             }
+
+            // C. Simular Ventas (Para generar comisiones)
+            if ($isPast || $currentDate->isToday()) {
+                $numSales = rand(5, 15);
+                $dayTotal = 0;
+
+                for ($s = 0; $s < $numSales; $s++) {
+                    $randomEmp = $employeesModels[rand(0, 2)];
+                    $sale = Sale::create([
+                        'daily_operation_id' => $dailyOp->id,
+                        'user_id' => $randomEmp->user_id, // Quién vendió
+                        'payment_method' => rand(0, 1) ? 'cash' : 'card',
+                        'total' => 0
+                    ]);
+
+                    $totalSale = 0;
+                    $itemsCount = rand(1, 4);
+                    
+                    for ($d = 0; $d < $itemsCount; $d++) {
+                        $prod = $productModels[rand(0, count($productModels)-1)];
+                        $qty = rand(1, 2);
+                        $sub = $qty * $prod->price;
+                        
+                        SaleDetail::create([
+                            'sale_id' => $sale->id,
+                            'product_id' => $prod->id,
+                            'quantity' => $qty,
+                            'unit_price' => $prod->price,
+                            'subtotal' => $sub
+                        ]);
+                        $totalSale += $sub;
+                    }
+                    $sale->update(['total' => $totalSale]);
+                    $dayTotal += $totalSale;
+                }
+
+                // Cerrar la operación si es día pasado
+                if ($isPast) {
+                    $dailyOp->update([
+                        'cash_end' => 500 + $dayTotal, // Cuadre perfecto
+                        'is_closed' => true,
+                        'notes' => 'Cierre automático seed. Ventas: $' . $dayTotal
+                    ]);
+                }
+            }
+
+            $currentDate->addDay();
         }
+
+        // 7. CERRAR NÓMINA DE LA SEMANA PASADA
+        // Usamos el PayrollService para calcular y congelar los datos
+        $payrollService = new PayrollService();
+        $startLastWeek = Carbon::now()->subWeeks(1)->startOfWeek(Carbon::SUNDAY);
+        $endLastWeek = $startLastWeek->copy()->endOfWeek(Carbon::SATURDAY);
+
+        foreach ($employeesModels as $emp) {
+            $calc = $payrollService->calculate($emp, $startLastWeek, $endLastWeek);
+            
+            // Preparar JSON breakdown
+            $finalBreakdown = $calc['breakdown'];
+            $finalBreakdown['totals_breakdown'] = $calc['totals_breakdown'];
+            $finalBreakdown['commissions_total'] = $calc['total_commissions'];
+
+            PayrollReceipt::create([
+                'employee_id' => $emp->id,
+                'start_date' => $startLastWeek->format('Y-m-d'),
+                'end_date' => $endLastWeek->format('Y-m-d'),
+                'base_salary_snapshot' => $emp->base_salary,
+                'total_pay' => $calc['total_pay'],
+                'days_worked' => $calc['days_worked'],
+                'total_bonuses' => $calc['total_bonuses'],
+                'breakdown_data' => $finalBreakdown,
+                'paid_at' => Carbon::now()->subDays(2), // Pagado hace 2 días
+            ]);
+        }
+
+        // 8. Crear Solicitudes de Incidencia (Pruebas)
+        IncidentRequest::create([
+            'employee_id' => $employeesModels[0]->id, // Juan
+            'incident_type' => IncidentType::VACACIONES,
+            'start_date' => Carbon::now()->addDays(5),
+            'end_date' => Carbon::now()->addDays(7),
+            'employee_reason' => 'Viaje familiar',
+            'status' => 'pending'
+        ]);
+
+        IncidentRequest::create([
+            'employee_id' => $employeesModels[1]->id, // Maria
+            'incident_type' => IncidentType::PERMISO_CON_GOCE,
+            'start_date' => Carbon::now()->addDays(1),
+            'end_date' => Carbon::now()->addDays(1),
+            'employee_reason' => 'Cita médica',
+            'status' => 'approved',
+            'admin_response' => 'Aprobado, traer justificante',
+            'processed_by' => $adminUser->id,
+            'processed_at' => Carbon::now()
+        ]);
     }
 }

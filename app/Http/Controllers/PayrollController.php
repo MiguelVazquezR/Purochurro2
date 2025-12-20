@@ -19,31 +19,53 @@ class PayrollController extends Controller
 {
     public function index()
     {
-        $weeks = [];
-        $currentStart = Carbon::now()->startOfWeek(Carbon::SUNDAY);
+        // 1. Obtener semana actual (Siempre visible para gestión en curso)
+        $currentStart = Carbon::now()->startOfWeek(Carbon::SUNDAY)->format('Y-m-d');
+        $weekStarts = collect([$currentStart]);
 
-        for ($i = 0; $i < 12; $i++) {
-            $start = $currentStart->copy()->subWeeks($i);
-            $end = $start->copy()->endOfWeek(Carbon::SATURDAY);
-            
-            // Si es admin, ve si existe ALGÚN recibo. Si es empleado, ve si existe SU recibo.
-            if (auth()->id() === 1) {
-                $isClosed = PayrollReceipt::where('start_date', $start->format('Y-m-d'))->exists();
-            } else {
-                $employee = Employee::where('user_id', auth()->id())->first();
-                $isClosed = $employee && PayrollReceipt::where('start_date', $start->format('Y-m-d'))
-                    ->where('employee_id', $employee->id)
-                    ->exists();
-            }
+        // 2. Agregar semanas históricas que tengan Recibos de Nómina (Cerradas)
+        $receiptStarts = PayrollReceipt::select('start_date')
+            ->distinct()
+            ->pluck('start_date');
+        $weekStarts = $weekStarts->merge($receiptStarts);
 
-            $weeks[] = [
-                'label' => "Semana del {$start->format('d M')} al {$end->format('d M Y')}",
-                'start_date' => $start->format('Y-m-d'),
-                'end_date' => $end->format('Y-m-d'),
-                'is_current' => $i === 0,
-                'is_closed' => $isClosed,
-            ];
-        }
+        // 3. Agregar semanas históricas que tengan Asistencias (Aunque no estén cerradas)
+        // Esto recupera periodos pasados donde hubo actividad pero quizás no se cerró nómina
+        $attendanceDates = Attendance::select('date')->distinct()->get()
+            ->map(fn($a) => Carbon::parse($a->date)->startOfWeek(Carbon::SUNDAY)->format('Y-m-d'));
+        $weekStarts = $weekStarts->merge($attendanceDates);
+
+        // 4. Procesar, ordenar y formatear para la vista
+        $weeks = $weekStarts->unique()
+            ->sortDesc() // Las más recientes primero
+            ->values()
+            ->map(function ($dateStr) use ($currentStart) {
+                $start = Carbon::parse($dateStr);
+                $end = $start->copy()->endOfWeek(Carbon::SATURDAY);
+                
+                // Determinar si la nómina está cerrada (Pagada/Generada)
+                $isClosed = false;
+                if (auth()->id() === 1) {
+                    // Admin: Cerrada si existe AL MENOS un recibo generado en esa fecha
+                    $isClosed = PayrollReceipt::where('start_date', $dateStr)->exists();
+                } else {
+                    // Empleado: Cerrada solo si ÉL tiene su recibo generado
+                    $employee = Employee::where('user_id', auth()->id())->first();
+                    if ($employee) {
+                        $isClosed = PayrollReceipt::where('start_date', $dateStr)
+                            ->where('employee_id', $employee->id)
+                            ->exists();
+                    }
+                }
+
+                return [
+                    'label' => "Semana del {$start->format('d M')} al {$end->format('d M Y')}",
+                    'start_date' => $start->format('Y-m-d'),
+                    'end_date' => $end->format('Y-m-d'),
+                    'is_current' => $dateStr === $currentStart,
+                    'is_closed' => $isClosed,
+                ];
+            });
 
         return Inertia::render('Payroll/Index', [
             'weeks' => $weeks
@@ -155,6 +177,7 @@ class PayrollController extends Controller
 
     /**
      * VISTA EXCLUSIVA DE EMPLEADO
+     * Ahora utiliza PayrollService para mostrar desglose completo.
      */
     private function employeeWeekView(string $startDate)
     {
@@ -164,10 +187,43 @@ class PayrollController extends Controller
         $start = Carbon::parse($startDate)->startOfWeek(Carbon::SUNDAY);
         $end = $start->copy()->endOfWeek(Carbon::SATURDAY);
 
+        // 1. Obtener Recibo Cerrado (Si existe)
         $receipt = PayrollReceipt::where('employee_id', $employee->id)
             ->where('start_date', $start->format('Y-m-d'))
             ->first();
 
+        // 2. Calcular datos detallados (Ya sea del recibo o cálculo en vivo)
+        if ($receipt) {
+            // Si hay recibo, usamos los datos congelados
+            $payrollData = [
+                'total_pay' => $receipt->total_pay,
+                'days_worked' => $receipt->days_worked,
+                'total_bonuses' => $receipt->total_bonuses,
+                'breakdown' => $receipt->breakdown_data, // Aquí viene todo el detalle
+                'paid_at' => $receipt->paid_at,
+                'is_closed' => true
+            ];
+        } else {
+            // Si está ABIERTA, calculamos una "Proyección" en vivo
+            $service = new PayrollService();
+            $calc = $service->calculate($employee, $start, $end);
+            
+            $payrollData = [
+                'total_pay' => $calc['total_pay'],
+                'days_worked' => $calc['days_worked'],
+                'total_bonuses' => $calc['total_bonuses'],
+                // Simulamos la estructura del recibo
+                'breakdown' => array_merge($calc['breakdown'], [
+                    'totals_breakdown' => $calc['totals_breakdown'],
+                    'commissions_total' => $calc['total_commissions'] ?? 0
+                ]),
+                'paid_at' => null,
+                'is_closed' => false
+            ];
+        }
+
+        // 3. Preparar Días para la vista de Calendario
+        // (Reutilizamos la lógica visual de días, agregando color de turno)
         $months = array_unique([$start->month, $end->month]);
         $holidaysLookup = Holiday::whereIn(DB::raw('MONTH(date)'), $months)
             ->get()
@@ -213,7 +269,6 @@ class PayrollController extends Controller
                 'schedule_shift' => $schedule?->shift?->name,
                 'shift_color' => $schedule?->shift?->color,
                 'is_rest_day' => (!$schedule || !$schedule->shift_id),
-                // AGREGADO: multiplier para mostrar en la vista
                 'holiday_data' => $holiday ? [
                     'name' => $holiday->name,
                     'multiplier' => $holiday->pay_multiplier ?? 2.0
@@ -227,13 +282,10 @@ class PayrollController extends Controller
             'startDate' => $start->format('Y-m-d'),
             'endDate' => $end->format('Y-m-d'),
             'days' => $days,
-            'receipt' => $receipt ? [
-                'total_pay' => $receipt->total_pay,
-                'days_worked' => $receipt->days_worked,
-                'paid_at' => $receipt->paid_at,
-            ] : null,
+            'payrollData' => $payrollData, // Datos financieros completos
             'employee' => [
                 'full_name' => $employee->full_name,
+                'base_salary' => $employee->base_salary,
                 'vacation_balance' => $employee->vacation_balance
             ],
         ]);
@@ -390,6 +442,11 @@ class PayrollController extends Controller
             foreach ($employees as $employee) {
                 $calc = $payrollService->calculate($employee, $start, $end);
 
+                // CORRECCIÓN CLAVE: Inyectar totals_breakdown dentro del array que se guarda como JSON
+                $finalBreakdownData = $calc['breakdown'];
+                $finalBreakdownData['totals_breakdown'] = $calc['totals_breakdown'];
+                $finalBreakdownData['commissions_total'] = $calc['total_commissions'];
+
                 PayrollReceipt::create([
                     'employee_id' => $employee->id,
                     'start_date' => $start->format('Y-m-d'),
@@ -398,7 +455,7 @@ class PayrollController extends Controller
                     'total_pay' => $calc['total_pay'],
                     'days_worked' => $calc['days_worked'],
                     'total_bonuses' => $calc['total_bonuses'],
-                    'breakdown_data' => $calc['breakdown'], 
+                    'breakdown_data' => $finalBreakdownData, // Ahora sí guarda los montos
                     'paid_at' => $request->mark_as_paid ? now() : null,
                 ]);
                 
@@ -408,9 +465,9 @@ class PayrollController extends Controller
 
                 $receiptsCount++;
             }
-
+            
+            // ... (limpieza de fotos y commit) ...
             $attendances = Attendance::whereBetween('date', [$start->format('Y-m-d'), $end->format('Y-m-d')])->get();
-
             foreach ($attendances as $attendance) {
                 $attendance->clearMediaCollection('check_in_photo');
                 $attendance->clearMediaCollection('check_out_photo');
@@ -419,7 +476,7 @@ class PayrollController extends Controller
             DB::commit();
             
             return redirect()->route('payroll.index')
-                ->with('success', "Nómina cerrada. {$receiptsCount} recibos generados. Fotos de evidencia eliminadas.");
+                ->with('success', "Nómina cerrada. {$receiptsCount} recibos generados.");
 
         } catch (\Exception $e) {
             DB::rollBack();

@@ -76,7 +76,7 @@ const deleteExpense = (expense) => {
                 <div class="flex gap-3">
                     <Link :href="route('expenses.create')">
                         <Button 
-                            label="Registrar Gasto" 
+                            label="Registrar gasto" 
                             icon="pi pi-plus" 
                             class="!bg-orange-600 !border-orange-600 hover:!bg-orange-700 font-semibold shadow-lg shadow-orange-200/50" 
                             rounded 
@@ -125,7 +125,7 @@ const deleteExpense = (expense) => {
 
                     <template #empty>
                         <div class="text-center p-8 text-surface-400">
-                            <i class="pi pi-receipt text-4xl mb-3 opacity-50"></i>
+                            <i class="pi pi-receipt !text-4xl mb-3 opacity-50"></i>
                             <p>No hay gastos registrados.</p>
                         </div>
                     </template>

@@ -99,13 +99,13 @@ const submit = () => {
                         <label for="remember" class="ml-2 text-sm text-surface-600 cursor-pointer select-none hover:text-surface-900 transition-colors">Recordarme</label>
                     </div>
 
-                    <Link 
+                    <!-- <Link 
                         v-if="canResetPassword" 
                         :href="route('password.request')" 
                         class="text-sm text-orange-600 hover:text-orange-700 font-medium transition-colors duration-200"
                     >
                         ¿Olvidaste tu contraseña?
-                    </Link>
+                    </Link> -->
                 </div>
 
                 <div class="pt-2">

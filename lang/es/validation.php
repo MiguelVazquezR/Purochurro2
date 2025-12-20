@@ -170,5 +170,11 @@ return [
         'phone' => 'teléfono',
         'address' => 'dirección',
         'employee_reason' => 'motivo',
+        'base_salary' => 'salario base',
+        'start_time' => 'hora de entrada',
+        'end_time' => 'hora de salida',
+        'amount' => 'monto',
+        'concept' => 'concepto',
+        'incident_type' => 'tipo de incidencia',
     ],
 ];
