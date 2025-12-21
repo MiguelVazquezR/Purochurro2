@@ -16,7 +16,7 @@ class SaleController extends Controller
      public function index(Request $request)
     {
         $query = DailyOperation::query()
-            ->with(['staff', 'sales']);
+            ->with(['staff.user', 'sales']); // Cargar user para la foto en caso de fallback
 
         // CORRECCIÓN: Validamos que 'date' tenga valor antes de filtrar
         if ($request->filled('date')) {
@@ -32,7 +32,8 @@ class SaleController extends Controller
                 // --- LÓGICA DE PERSONAL EN TURNO (Basada en Horarios) ---
                 $dateStr = $day->date->format('Y-m-d');
                 
-                $schedules = WorkSchedule::with(['employee', 'shift'])
+                // Cargamos 'employee.user' para acceder eficientemente a profile_photo_url
+                $schedules = WorkSchedule::with(['employee.user', 'shift'])
                     ->whereDate('date', $dateStr)
                     ->get();
                 
@@ -42,17 +43,20 @@ class SaleController extends Controller
                         'id' => $emp->id,
                         'name' => $emp->full_name,
                         'initials' => substr($emp->first_name, 0, 1) . substr($emp->last_name, 0, 1),
+                        'photo' => $emp->profile_photo_url, // Agregamos la URL de la foto
                         'shift_color' => $schedule->shift ? $schedule->shift->color : '#9ca3af',
                         'shift_name' => $schedule->shift ? $schedule->shift->name : 'Sin turno'
                     ];
                 });
 
+                // Fallback: Si no hay horarios, usar asignación manual de DailyOperation
                 if ($staffList->isEmpty()) {
                     $staffList = $day->staff->map(function ($emp) {
                         return [
                             'id' => $emp->id,
                             'name' => $emp->full_name,
                             'initials' => substr($emp->first_name, 0, 1) . substr($emp->last_name, 0, 1),
+                            'photo' => $emp->profile_photo_url, // Agregamos la URL de la foto
                             'shift_color' => '#e5e7eb',
                             'shift_name' => 'Asignación manual'
                         ];
@@ -63,7 +67,7 @@ class SaleController extends Controller
                     'id' => $day->id,
                     'date' => $day->date,
                     'is_closed' => $day->is_closed,
-                    'staff_list' => $staffList->take(4),
+                    'staff_list' => $staffList->take(4), // Mostramos máx 4 avatares
                     'staff_count' => $staffList->count(),
                     'total_public' => $totalSales,
                     'total_employee' => 0,
@@ -92,7 +96,7 @@ class SaleController extends Controller
         // En lugar de confiar en $dailyOperation->staff, buscamos quiénes tenían turno este día.
         $date = $dailyOperation->date->format('Y-m-d');
 
-        $schedules = WorkSchedule::with(['employee', 'shift'])
+        $schedules = WorkSchedule::with(['employee.user', 'shift'])
             ->whereDate('date', $date)
             ->get();
 

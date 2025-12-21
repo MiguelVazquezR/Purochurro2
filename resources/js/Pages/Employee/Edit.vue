@@ -32,6 +32,7 @@ const form = useForm({
     last_name: props.employee.last_name,
     email: props.employee.email,
     phone: props.employee.phone,
+    password: '', // Nuevo campo para contraseña
     birth_date: parseDate(props.employee.birth_date),
     address: props.employee.address,
     hired_at: parseDate(props.employee.hired_at),
@@ -102,6 +103,7 @@ const submit = () => {
     })).post(route('employees.update', props.employee.id), {
         onSuccess: () => {
             toast.add({ severity: 'success', summary: 'Éxito', detail: 'Empleado actualizado correctamente', life: 3000 });
+            form.password = ''; // Limpiar campo contraseña tras guardar
         },
         onError: () => {
             toast.add({ severity: 'error', summary: 'Error', detail: 'Por favor revisa los campos del formulario', life: 3000 });
@@ -211,13 +213,14 @@ const submit = () => {
                             </div>
                         </div>
 
-                        <!-- Contacto -->
+                        <!-- Contacto y Acceso -->
                         <div class="bg-white rounded-3xl shadow-sm border border-surface-200 p-6">
                             <h2 class="text-lg font-bold text-surface-900 mb-6 flex items-center gap-2">
                                 <i class="pi pi-id-card text-blue-500"></i> Contacto y acceso
                             </h2>
 
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <!-- Email -->
                                 <div class="flex flex-col gap-2">
                                     <label for="email" class="font-medium text-surface-700">Correo electrónico</label>
                                     <InputText id="email" v-model="form.email" class="w-full"
@@ -225,6 +228,15 @@ const submit = () => {
                                     <small v-if="form.errors.email" class="text-red-500">{{ form.errors.email }}</small>
                                 </div>
 
+                                <!-- Password (Nuevo) -->
+                                <div class="flex flex-col gap-2">
+                                    <label for="password" class="font-medium text-surface-700">Contraseña de sistema</label>
+                                    <InputText id="password" v-model="form.password" type="password" class="w-full"
+                                        placeholder="Dejar vacío para no cambiar" :invalid="!!form.errors.password" />
+                                    <small v-if="form.errors.password" class="text-red-500">{{ form.errors.password }}</small>
+                                </div>
+
+                                <!-- Phone -->
                                 <div class="flex flex-col gap-2">
                                     <label for="phone" class="font-medium text-surface-700">Teléfono</label>
                                     <InputText id="phone" v-model="form.phone" class="w-full" maxlength="12"
@@ -232,9 +244,10 @@ const submit = () => {
                                     <small v-if="form.errors.phone" class="text-red-500">{{ form.errors.phone }}</small>
                                 </div>
 
-                                <div class="flex flex-col gap-2 md:col-span-2">
+                                <!-- Address -->
+                                <div class="flex flex-col gap-2">
                                     <label for="address" class="font-medium text-surface-700">Dirección</label>
-                                    <Textarea id="address" v-model="form.address" rows="2" class="w-full !resize-none"
+                                    <Textarea id="address" v-model="form.address" rows="1" autoResize class="w-full"
                                         :invalid="!!form.errors.address" />
                                     <small v-if="form.errors.address" class="text-red-500">{{ form.errors.address
                                         }}</small>

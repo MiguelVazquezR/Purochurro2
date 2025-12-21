@@ -33,12 +33,13 @@ const toggleUserMenu = (event) => {
 <template>
     <header class="h-16 bg-white/80 backdrop-blur-md border-b border-surface-200 flex items-center justify-between px-4 md:px-6 shadow-sm transition-all duration-300">
         
-        <!-- Izquierda: Logo y Toggle Móvil -->
+        <!-- Izquierda: Toggle y Logo -->
         <div class="flex items-center gap-4">
-            <!-- Botón Hamburguesa (Solo Móvil) -->
+            <!-- Botón Hamburguesa (Visible en Móvil y Escritorio) -->
             <button 
                 @click="$emit('toggle-sidebar')" 
-                class="md:hidden p-2 rounded-lg hover:bg-surface-100 text-surface-500 transition-colors"
+                class="p-2 rounded-lg hover:bg-surface-100 text-surface-500 transition-colors focus:outline-none focus:ring-2 focus:ring-orange-200"
+                title="Alternar menú"
             >
                 <i class="pi pi-bars text-xl"></i>
             </button>

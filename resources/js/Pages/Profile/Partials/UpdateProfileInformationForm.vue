@@ -81,9 +81,9 @@ const clearPhotoFileInput = () => {
             
             <!-- Columna Foto -->
             <div v-if="$page.props.jetstream.managesProfilePhotos" class="flex flex-col items-center gap-4">
-                <input id="photo" ref="photoInput" type="file" class="hidden" @change="updatePhotoPreview">
+                <!-- <input id="photo" ref="photoInput" type="file" class="hidden" @change="updatePhotoPreview"> -->
 
-                <div class="relative group cursor-pointer" @click="selectNewPhoto">
+                <div class="relative group" @click="selectNewPhoto">
                     <!-- Foto Actual -->
                     <div v-show="!photoPreview" class="w-32 h-32 rounded-full overflow-hidden border-4 border-surface-100 shadow-md">
                         <img :src="user.profile_photo_url" :alt="user.name" class="w-full h-full object-cover">
@@ -94,15 +94,15 @@ const clearPhotoFileInput = () => {
                     </div>
                     
                     <!-- Overlay Hover -->
-                    <div class="absolute inset-0 bg-black/30 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <!-- <div class="absolute inset-0 bg-black/30 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                         <i class="pi pi-camera text-white text-2xl"></i>
-                    </div>
+                    </div> -->
                 </div>
 
-                <div class="flex flex-col gap-2 w-full">
+                <!-- <div class="flex flex-col gap-2 w-full">
                     <Button label="Cambiar Foto" size="small" outlined severity="secondary" @click.prevent="selectNewPhoto" class="w-full" />
                     <Button v-if="user.profile_photo_path" label="Eliminar" size="small" text severity="danger" @click.prevent="deletePhoto" class="w-full" />
-                </div>
+                </div> -->
                 
                 <small class="text-red-500" v-if="form.errors.photo">{{ form.errors.photo }}</small>
             </div>

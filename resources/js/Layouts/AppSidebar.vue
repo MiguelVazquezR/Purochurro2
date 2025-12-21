@@ -3,8 +3,9 @@ import { computed, ref, watchEffect } from 'vue';
 import { usePage, Link } from '@inertiajs/vue3';
 
 const props = defineProps({
-    visible: Boolean,
-    collapsed: Boolean // Nuevo prop para controlar el modo mini
+    visible: Boolean, // Para móvil (Drawer)
+    collapsed: Boolean, // Para desktop (Mini mode)
+    desktopVisible: Boolean // NUEVO: Para ocultar completamente en desktop
 });
 
 const emit = defineEmits(['update:visible', 'toggle-collapsed']);
@@ -13,12 +14,10 @@ const page = usePage();
 const user = page.props.auth.user;
 const isAdmin = computed(() => user.id === 1);
 
-// Estado para controlar qué grupos (como Nóminas) están expandidos
 const expandedGroups = ref({});
 
 // Lógica de Menú
 const menuItems = computed(() => {
-    // Definimos sub-items de Nóminas
     const nominaSubItems = [
         { label: 'Periodos de nómina', route: 'payroll.index', icon: 'pi pi-calendar', visible: true },
         { label: 'Turnos', route: 'shifts.index', icon: 'pi pi-clock', visible: isAdmin.value },
@@ -30,20 +29,13 @@ const menuItems = computed(() => {
     const items = [
         { label: 'Inicio', route: 'dashboard', icon: 'pi pi-home', visible: true },
         { label: 'Punto de venta', route: 'pos.index', icon: 'pi pi-shopping-bag', visible: true },
-        // { label: 'Carrito', route: 'pos.index', icon: 'pi pi-shopping-cart', visible: true }, 
-        // { label: 'Cocina', route: 'pos.index', icon: 'pi pi-ticket', visible: true },
-
         { label: 'Usuarios', route: 'employees.index', icon: 'pi pi-users', visible: isAdmin.value },
-        
-        // Grupo Nóminas
         { 
             label: 'Nóminas', 
             icon: 'pi pi-wallet', 
             visible: nominaSubItems.length > 0,
-            id: 'nominas', // ID único para control de estado
             items: nominaSubItems 
         },
-
         { label: 'Gastos', route: 'expenses.index', icon: 'pi pi-dollar', visible: isAdmin.value },
         { label: 'Ventas', route: 'sales.index', icon: 'pi pi-chart-line', visible: isAdmin.value },
         { label: 'Productos', route: 'products.index', icon: 'pi pi-box', visible: isAdmin.value },
@@ -53,27 +45,18 @@ const menuItems = computed(() => {
     return items.filter(item => item.visible);
 });
 
-// Helper mejorado para verificar rutas activas (Soporta sub-rutas de recursos)
 const isRouteActive = (routeName) => {
     if (!routeName) return false;
-    
-    // Si la ruta es del tipo 'resource.index', verificamos por el prefijo base 'resource.*'
-    // Esto asegura que 'products.create' o 'products.edit' mantengan activo el menú 'products.index'
     if (routeName.endsWith('.index')) {
         const baseRoute = routeName.replace('.index', '');
         return route().current(`${baseRoute}*`);
     }
-    
-    // Comportamiento normal para otras rutas
     return route().current(`${routeName}*`);
 };
 
-// Función para alternar grupos
 const toggleGroup = (item) => {
     if (props.collapsed) {
-        // Si la barra está colapsada y hacen clic en un grupo, expandimos la barra para que vean el contenido
         emit('toggle-collapsed');
-        // Pequeño timeout para esperar que la barra se expanda antes de abrir el grupo
         setTimeout(() => {
             expandedGroups.value[item.label] = true;
         }, 150);
@@ -82,7 +65,6 @@ const toggleGroup = (item) => {
     }
 };
 
-// Watcher inteligente: Si cambias de ruta y la nueva ruta pertenece a un grupo, abre ese grupo automáticamente
 watchEffect(() => {
     menuItems.value.forEach(item => {
         if (item.items) {
@@ -96,7 +78,7 @@ watchEffect(() => {
 </script>
 
 <template>
-    <!-- MÓVIL: Drawer -->
+    <!-- MÓVIL: Drawer (Sin cambios mayores, solo se usa en md:hidden) -->
     <Drawer 
         :visible="visible" 
         @update:visible="$emit('update:visible', $event)" 
@@ -121,7 +103,7 @@ watchEffect(() => {
                     <span>{{ item.label }}</span>
                 </Link>
 
-                <!-- Móvil: Grupo con Acordeón (Con transición) -->
+                <!-- Móvil: Grupo -->
                 <div v-else class="flex flex-col gap-1">
                     <button 
                         @click="toggleGroup(item)"
@@ -134,7 +116,6 @@ watchEffect(() => {
                         <i class="pi pi-chevron-down text-xs transition-transform duration-300" :class="{ 'rotate-180': expandedGroups[item.label] }"></i>
                     </button>
                     
-                    <!-- Transición usando Grid Rows -->
                     <div 
                         class="grid transition-[grid-template-rows] duration-300 ease-in-out"
                         :class="expandedGroups[item.label] ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'"
@@ -163,15 +144,23 @@ watchEffect(() => {
     </Drawer>
 
     <!-- DESKTOP: Sidebar Fijo Dinámico -->
+    <!-- 
+         Usamos 'desktopVisible' para controlar la transformación (slide-in/out).
+         El ancho sigue dependiendo de 'collapsed'.
+    -->
     <aside 
         class="hidden md:flex flex-col fixed left-0 top-16 bottom-0 bg-white/80 backdrop-blur-xl border-r border-surface-200 z-40 transition-all duration-300 ease-in-out"
-        :class="collapsed ? 'w-20' : 'w-64'"
+        :class="[
+            collapsed ? 'w-20' : 'w-64',
+            desktopVisible ? 'translate-x-0' : '-translate-x-full'
+        ]"
     >
-        <!-- Botón de Colapso/Expansión -->
-        <div class="absolute -right-3 top-4 z-50">
+        <!-- Botón de Colapso (Mini Mode) -->
+        <div class="absolute -right-3 top-4 z-50" v-if="desktopVisible">
             <button 
                 @click="$emit('toggle-collapsed')"
                 class="w-6 h-6 bg-white border border-surface-200 rounded-full shadow-sm flex items-center justify-center text-surface-500 hover:text-orange-600 hover:border-orange-200 transition-colors focus:outline-none transform hover:scale-110 duration-200"
+                title="Minimizar menú"
             >
                 <i class="pi pi-angle-left text-xs transition-transform duration-300" :class="{ 'rotate-180': collapsed }"></i>
             </button>
@@ -200,13 +189,11 @@ watchEffect(() => {
                         {{ item.label }}
                     </span>
                     
-                    <!-- Indicador Activo -->
                     <div v-if="isRouteActive(item.route)" class="absolute left-0 top-1/2 -translate-y-1/2 h-8 w-1 bg-orange-500 rounded-r-full"></div>
                 </Link>
 
-                <!-- Desktop: Grupo (Nóminas) -->
+                <!-- Desktop: Grupo -->
                 <div v-else class="flex flex-col">
-                    <!-- Cabecera del Grupo -->
                     <button 
                         @click="toggleGroup(item)"
                         class="flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group w-full relative hover:bg-surface-50"
@@ -226,7 +213,6 @@ watchEffect(() => {
                             </span>
                         </div>
                         
-                        <!-- Flecha Chevron -->
                         <i 
                             v-if="!collapsed" 
                             class="pi pi-chevron-down text-xs text-surface-400 transition-transform duration-300" 
@@ -234,7 +220,6 @@ watchEffect(() => {
                         ></i>
                     </button>
 
-                    <!-- Cuerpo del Grupo (Sub-items) con Transición -->
                     <div 
                         class="grid transition-[grid-template-rows] duration-300 ease-in-out"
                         :class="(expandedGroups[item.label] && !collapsed) ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'"

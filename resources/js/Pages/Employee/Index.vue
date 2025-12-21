@@ -139,7 +139,6 @@ const getInitials = (firstName, lastName) => {
                                     size="large"
                                     class="!bg-orange-100 !text-orange-600 !border !border-orange-200"
                                 />
-                                <div v-if="slotProps.data.profile_photo_url" class="absolute -bottom-1 -right-1 md:right-4 w-3 h-3 bg-green-500 border-2 border-white rounded-full" title="Rostro registrado"></div>
                             </div>
                         </template>
                     </Column>

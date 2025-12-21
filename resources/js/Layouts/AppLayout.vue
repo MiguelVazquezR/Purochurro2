@@ -8,22 +8,43 @@ defineProps({
     title: String,
 });
 
+// Estado para Móvil (Drawer overlay)
 const isMobileSidebarOpen = ref(false);
+
+// Estado para Desktop:
+// 1. isDesktopSidebarOpen: Controla si la barra está visible o completamente oculta (tipo Drawer)
+// 2. isDesktopSidebarCollapsed: Controla si la barra está en modo "Mini" (iconos) o extendida
+const isDesktopSidebarOpen = ref(true);
 const isDesktopSidebarCollapsed = ref(false);
 
 // Cargar estado del sidebar desde localStorage
 onMounted(() => {
-    const savedState = localStorage.getItem('sidebar-collapsed');
-    if (savedState !== null) {
-        isDesktopSidebarCollapsed.value = savedState === 'true';
+    // Restaurar colapso (mini mode)
+    const savedCollapsedState = localStorage.getItem('sidebar-collapsed');
+    if (savedCollapsedState !== null) {
+        isDesktopSidebarCollapsed.value = savedCollapsedState === 'true';
+    }
+    
+    // Restaurar visibilidad (open/closed) - Opcional, por defecto true
+    const savedOpenState = localStorage.getItem('sidebar-open');
+    if (savedOpenState !== null) {
+        isDesktopSidebarOpen.value = savedOpenState === 'true';
     }
 });
 
-const toggleMobileSidebar = () => {
-    isMobileSidebarOpen.value = !isMobileSidebarOpen.value;
+// Función inteligente de Toggle
+const toggleSidebar = () => {
+    if (window.innerWidth >= 768) { 
+        // Lógica Desktop: Alternar visibilidad completa
+        isDesktopSidebarOpen.value = !isDesktopSidebarOpen.value;
+        localStorage.setItem('sidebar-open', isDesktopSidebarOpen.value);
+    } else {
+        // Lógica Móvil: Alternar Drawer
+        isMobileSidebarOpen.value = !isMobileSidebarOpen.value;
+    }
 };
 
-const toggleDesktopSidebar = () => {
+const toggleDesktopCollapsed = () => {
     isDesktopSidebarCollapsed.value = !isDesktopSidebarCollapsed.value;
     localStorage.setItem('sidebar-collapsed', isDesktopSidebarCollapsed.value);
 };
@@ -39,29 +60,31 @@ const toggleDesktopSidebar = () => {
 
         <!-- Topbar (Fijo arriba) -->
         <div class="fixed top-0 left-0 right-0 z-50">
-            <AppTopbar @toggle-sidebar="toggleMobileSidebar" />
+            <!-- Pasamos el mismo evento toggle-sidebar -->
+            <AppTopbar @toggle-sidebar="toggleSidebar" />
         </div>
 
         <!-- Sidebar (Fijo izquierda) -->
         <AppSidebar 
             v-model:visible="isMobileSidebarOpen"
             :collapsed="isDesktopSidebarCollapsed"
-            @toggle-collapsed="toggleDesktopSidebar"
+            :desktop-visible="isDesktopSidebarOpen"
+            @toggle-collapsed="toggleDesktopCollapsed"
         />
 
         <!-- 
-            WRAPPER PRINCIPAL (El que se ajusta al Sidebar)
-            Nota: Ya NO tiene 'container mx-auto'. Su única función es dar el margen izquierdo.
-            Usamos 'w-auto' implícito (bloque) para que ocupe todo el ancho restante.
+            WRAPPER PRINCIPAL
+            Ajusta dinámicamente el margen izquierdo en desktop:
+            - Si está cerrado (hidden): ml-0
+            - Si está abierto y colapsado (mini): ml-20
+            - Si está abierto y full: ml-64
         -->
         <main 
             class="pt-20 pb-8 px-4 transition-all duration-300 min-h-screen flex flex-col"
-            :class="isDesktopSidebarCollapsed ? 'md:ml-20' : 'md:ml-64'"
+            :class="[
+                !isDesktopSidebarOpen ? 'md:ml-0' : (isDesktopSidebarCollapsed ? 'md:ml-20' : 'md:ml-64')
+            ]"
         >
-            <!-- 
-                CONTENEDOR DE CENTRADO (El que centra el contenido)
-                Este div toma el espacio disponible dentro del main y centra el contenido.
-            -->
             <div class="w-full max-w-7xl mx-auto fade-in-up flex-1">
                 <slot />
             </div>

@@ -114,9 +114,9 @@ const vacationCount = computed(() => props.stats.vacation_list?.length || 0);
                     
                     <!-- Paneles Detalle Admin -->
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div class="bg-white shadow-sm sm:rounded-xl border border-gray-100 flex flex-col h-96">
+                        <div class="bg-white shadow-sm sm:rounded-xl border border-gray-100 flex flex-col h-64">
                             <div class="px-4 py-3 bg-blue-50 border-b border-blue-100 flex justify-between items-center rounded-t-xl">
-                                <h3 class="font-bold text-blue-800 flex items-center gap-2 text-sm"><i class="pi pi-check-circle"></i> En Turno ({{ presentCount }})</h3>
+                                <h3 class="font-bold text-blue-800 flex items-center gap-2 text-sm"><i class="pi pi-check-circle"></i> En turno ({{ presentCount }})</h3>
                             </div>
                             <div class="p-4 overflow-y-auto flex-grow space-y-3 custom-scrollbar">
                                 <div v-for="emp in stats.present_list" :key="emp.id" class="flex items-center gap-3">
@@ -133,7 +133,7 @@ const vacationCount = computed(() => props.stats.vacation_list?.length || 0);
                                 <div v-if="presentCount === 0" class="text-center py-10 text-gray-400 text-xs">No hay asistencias registradas aún.</div>
                             </div>
                         </div>
-                        <div class="bg-white shadow-sm sm:rounded-xl border border-gray-100 flex flex-col h-96">
+                        <div class="bg-white shadow-sm sm:rounded-xl border border-gray-100 flex flex-col h-64">
                             <div class="px-4 py-3 bg-red-50 border-b border-red-100 flex justify-between items-center rounded-t-xl">
                                 <h3 class="font-bold text-red-800 flex items-center gap-2 text-sm"><i class="pi pi-times-circle"></i> Ausentes / Por llegar ({{ absentCount }})</h3>
                             </div>
@@ -151,9 +151,9 @@ const vacationCount = computed(() => props.stats.vacation_list?.length || 0);
                                 <div v-if="absentCount === 0" class="text-center py-10 text-gray-400 text-xs"><i class="pi pi-thumbs-up text-2xl mb-2 text-gray-300"></i><br>Asistencia perfecta hoy.</div>
                             </div>
                         </div>
-                        <div class="bg-white shadow-sm sm:rounded-xl border border-gray-100 flex flex-col h-96">
+                        <div class="bg-white shadow-sm sm:rounded-xl border border-gray-100 flex flex-col h-64">
                             <div class="px-4 py-3 bg-purple-50 border-b border-purple-100 flex justify-between items-center rounded-t-xl">
-                                <h3 class="font-bold text-purple-800 flex items-center gap-2 text-sm"><i class="pi pi-sun"></i> De Vacaciones ({{ vacationCount }})</h3>
+                                <h3 class="font-bold text-purple-800 flex items-center gap-2 text-sm"><i class="pi pi-sun"></i> De vacaciones ({{ vacationCount }})</h3>
                             </div>
                             <div class="p-4 overflow-y-auto flex-grow space-y-3 custom-scrollbar">
                                 <div v-for="emp in stats.vacation_list" :key="emp.id" class="flex items-center gap-3">

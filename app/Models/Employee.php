@@ -8,8 +8,6 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
-use Spatie\Image\Enums\Fit;
-use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
 class Employee extends Model implements HasMedia
 {
@@ -27,7 +25,7 @@ class Employee extends Model implements HasMedia
         'base_salary',
         'vacation_balance',
         'is_active',
-        'aws_face_id',
+        'aws_face_id', // ID biométrico de AWS
         'default_schedule_template',
         'termination_date',
         'termination_reason',
@@ -53,13 +51,11 @@ class Employee extends Model implements HasMedia
         return $this->belongsTo(User::class);
     }
 
-    // NUEVA RELACIÓN: Horarios de Trabajo (Historial completo)
     public function workSchedules()
     {
         return $this->hasMany(WorkSchedule::class);
     }
 
-    // Historial de bonos pagados (Uno a uno)
     public function bonuses()
     {
         return $this->belongsToMany(Bonus::class, 'employee_bonus')
@@ -67,7 +63,6 @@ class Employee extends Model implements HasMedia
             ->withTimestamps();
     }
 
-    // Bonos Recurrentes (Configuración)
     public function recurringBonuses()
     {
         return $this->belongsToMany(Bonus::class, 'recurring_bonuses')
@@ -91,21 +86,11 @@ class Employee extends Model implements HasMedia
     public function getVacationDaysEntitledAttribute()
     {
         $years = floor($this->years_of_service);
-
-        if ($years < 1) return 0;
-        if ($years == 1) return 12;
-        if ($years == 2) return 14;
-        if ($years == 3) return 16;
-        if ($years == 4) return 18;
-        if ($years == 5) return 20;
-        if ($years >= 6 && $years <= 10) return 22;
-        if ($years >= 11 && $years <= 15) return 24;
-        if ($years >= 16 && $years <= 20) return 26;
-        
-        return 28;
+        // Regla: 6 días mínimos fijos para este negocio
+        return 6;
     }
 
-    // --- MÉTODOS DE NEGOCIO ---
+    // --- Métodos de Negocio ---
 
     public function adjustVacationBalance(float $days, string $type, string $description, ?int $userId = null)
     {
@@ -133,26 +118,24 @@ class Employee extends Model implements HasMedia
         );
     }
 
+    /**
+     * Accesor CORREGIDO:
+     * Ya no busca en la colección 'avatar' del Employee.
+     * Solo devuelve la foto del User asociado o el placeholder de UI Avatars.
+     */
     protected function profilePhotoUrl(): Attribute
     {
         return Attribute::make(
-            get: fn () => $this->getFirstMediaUrl('avatar', 'thumb') ?: null,
+            get: function () {
+                if ($this->user) {
+                    return $this->user->profile_photo_url;
+                }
+                
+                return 'https://ui-avatars.com/api/?name='.urlencode($this->full_name).'&color=7F9CF5&background=EBF4FF';
+            },
         );
     }
 
-    // --- Media Library ---
-
-    public function registerMediaCollections(): void
-    {
-        $this->addMediaCollection('avatar')
-            ->singleFile()
-            ->useDisk('public'); 
-    }
-
-    public function registerMediaConversions(Media $media = null): void
-    {
-        $this->addMediaConversion('thumb')
-            ->fit(Fit::Crop, 150, 150)
-            ->nonQueued();
-    }
+    // NOTA: Se eliminaron registerMediaCollections y registerMediaConversions para 'avatar'
+    // ya que ahora la foto vive en el modelo User.
 }

@@ -2,11 +2,6 @@
 import { ref, watch } from 'vue';
 import { router, Link } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Button from 'primevue/button';
-import Tag from 'primevue/tag';
-import Avatar from 'primevue/avatar';
-import AvatarGroup from 'primevue/avatargroup';
-import DatePicker from 'primevue/datepicker';
 
 const props = defineProps({
     salesHistory: Object,
@@ -152,21 +147,27 @@ watch(dateFilter, (newDate) => {
                     <!-- Contenido de la Tarjeta -->
                     <div class="p-6 grid grid-cols-1 md:grid-cols-3 gap-8 items-center">
 
-                        <!-- Columna 1: Staff (ACTUALIZADO CON OBJETOS Y COLOR DE TURNO) -->
+                        <!-- Columna 1: Staff (ACTUALIZADO CON FOTOS) -->
                         <div class="md:col-span-1 border-b md:border-b-0 md:border-r border-gray-100 pb-6 md:pb-0 md:pr-6">
                             <span class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 block">Equipo en turno</span>
                             <div class="flex items-center gap-2">
                                 <AvatarGroup v-if="day.staff_list && day.staff_list.length > 0">
-                                    <!-- Iteramos staff_list que contiene objetos {name, initials, shift_color} -->
+                                    <!-- 
+                                        Mostramos foto si existe, si no, iniciales.
+                                        Aplicamos estilos condicionales para el fondo solo si no hay foto.
+                                    -->
                                     <Avatar 
                                         v-for="employee in day.staff_list" 
                                         :key="employee.id" 
-                                        :label="employee.initials"
+                                        :image="employee.photo"
+                                        :label="!employee.photo ? employee.initials : null"
                                         shape="circle"
-                                        class="!bg-indigo-50 !text-indigo-700 !w-9 !h-9 !text-xs !border-2"
+                                        class="!w-9 !h-9 !border-2 !text-xs transition-transform hover:scale-110 cursor-help"
+                                        :class="{'!bg-indigo-50 !text-indigo-700': !employee.photo, '!bg-white': employee.photo}"
                                         :style="{ borderColor: employee.shift_color }" 
                                         v-tooltip.top="`${employee.name} (${employee.shift_name})`"
                                     />
+                                    
                                     <!-- Contador de extras -->
                                     <Avatar v-if="day.staff_count > 4" :label="`+${day.staff_count - 4}`" shape="circle"
                                         class="!bg-gray-100 !text-gray-600 !border-2 !border-white !w-9 !h-9 !text-xs" />
