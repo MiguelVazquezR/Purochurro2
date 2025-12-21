@@ -1,9 +1,7 @@
 <script setup>
 import { computed } from 'vue';
-import { Head, Link, router } from '@inertiajs/vue3';
+import { router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Button from 'primevue/button';
-import Tag from 'primevue/tag';
 import dayjs from 'dayjs';
 import 'dayjs/locale/es-mx';
 
@@ -144,18 +142,18 @@ const getHolidayRestAmount = () => {
             <div v-else class="flex flex-col gap-6 animate-fade-in">
                 <!-- Resumen Financiero -->
                 <div class="bg-gradient-to-r from-surface-900 to-surface-800 rounded-3xl p-6 text-white shadow-lg relative overflow-hidden">
-                    <div class="absolute top-0 right-0 p-3 opacity-10"><i class="pi pi-wallet text-9xl"></i></div>
+                    <div class="absolute top-0 right-0 p-3 opacity-10"><i class="pi pi-wallet !text-8xl"></i></div>
                     <div class="relative z-10">
                         <div class="flex justify-between items-start">
                             <div>
                                 <p class="text-surface-300 text-sm font-medium uppercase tracking-wider mb-1">
-                                    {{ payrollData.is_closed ? 'Total Neto Recibido' : 'Estimado a Recibir' }}
+                                    {{ payrollData.is_closed ? 'Total neto recibido' : 'Estimado a recibir' }}
                                 </p>
                                 <div class="text-4xl font-black mb-1">{{ formatCurrency(payrollData.total_pay) }}</div>
                                 <Tag :value="payrollData.is_closed ? 'Pagado' : 'En Curso'" :severity="payrollData.is_closed ? 'success' : 'info'" class="!text-[10px] uppercase" />
                             </div>
                             <div class="text-right hidden sm:block">
-                                <span class="block text-xs uppercase opacity-70">Sueldo Turno</span>
+                                <span class="block text-xs uppercase opacity-70">Sueldo turno</span>
                                 <span class="font-bold text-lg">{{ formatCurrency(employee.base_salary) }}</span>
                             </div>
                         </div>
@@ -168,25 +166,25 @@ const getHolidayRestAmount = () => {
                     <!-- Tarjeta 1: Percepciones Base -->
                     <div class="bg-white rounded-2xl shadow-sm border border-surface-200 p-5 space-y-4">
                         <h3 class="font-bold text-surface-900 border-b border-surface-100 pb-2 flex items-center gap-2">
-                            <i class="pi pi-money-bill text-green-600"></i> Percepciones Base
+                            <i class="pi pi-money-bill text-green-600"></i> Percepciones base
                         </h3>
                         
                         <div class="space-y-2 text-sm">
                             <!-- Turnos Normales -->
                             <div class="flex justify-between items-center">
-                                <span class="text-surface-600">Turnos Trabajados ({{ bd.days_worked || 0 }})</span>
+                                <span class="text-surface-600">Turnos trabajados ({{ bd.days_worked || 0 }})</span>
                                 <span class="font-bold text-surface-900">{{ formatCurrency(totals.salary_normal) }}</span>
                             </div>
                             
                             <!-- Festivos Laborados -->
                             <div v-if="bd.holidays_worked > 0" class="flex justify-between items-center">
-                                <span class="text-yellow-700">Festivos Laborados ({{ bd.holidays_worked }})</span>
+                                <span class="text-yellow-700">Festivos laborados ({{ bd.holidays_worked }})</span>
                                 <span class="font-bold text-yellow-700">+{{ formatCurrency(getHolidayWorkedAmount()) }}</span>
                             </div>
                             
                             <!-- Festivos Descanso -->
                             <div v-if="bd.holidays_rest > 0" class="flex justify-between items-center">
-                                <span class="text-emerald-700">Festivos Descanso ({{ bd.holidays_rest }})</span>
+                                <span class="text-emerald-700">Festivos descanso ({{ bd.holidays_rest }})</span>
                                 <span class="font-bold text-emerald-700">{{ formatCurrency(getHolidayRestAmount()) }}</span>
                             </div>
 
@@ -198,7 +196,7 @@ const getHolidayRestAmount = () => {
 
                             <!-- Permisos con Goce -->
                             <div v-if="totals.salary_permissions > 0" class="flex justify-between items-center">
-                                <span class="text-indigo-600">Permisos con Goce</span>
+                                <span class="text-indigo-600">Permisos con goce</span>
                                 <span class="font-bold text-indigo-600">{{ formatCurrency(totals.salary_permissions) }}</span>
                             </div>
 
@@ -213,13 +211,13 @@ const getHolidayRestAmount = () => {
                     <!-- Tarjeta 2: Comisiones y Bonos -->
                     <div class="bg-white rounded-2xl shadow-sm border border-surface-200 p-5 space-y-4">
                         <h3 class="font-bold text-surface-900 border-b border-surface-100 pb-2 flex items-center gap-2">
-                            <i class="pi pi-star text-orange-500"></i> Comisiones y Extras
+                            <i class="pi pi-star text-orange-500"></i> Comisiones y extras
                         </h3>
 
                         <div class="space-y-3 text-sm">
                             <!-- Comisiones Total -->
                             <div class="flex justify-between items-center bg-orange-50 p-2 rounded-lg border border-orange-100">
-                                <span class="text-orange-800 font-bold">Total Comisiones</span>
+                                <span class="text-orange-800 font-bold">Total comisiones</span>
                                 <span class="font-black text-orange-600">{{ formatCurrency(commissionsTotal) }}</span>
                             </div>
 
@@ -260,7 +258,7 @@ const getHolidayRestAmount = () => {
                 </div>
 
                 <!-- Calendario -->
-                <h3 class="text-lg font-bold text-surface-900 mt-2">Detalle Diario</h3>
+                <h3 class="text-lg font-bold text-surface-900 mt-2">Detalle diario</h3>
                 <div class="grid grid-cols-1 gap-3">
                     <div v-for="day in days" :key="day.date" 
                         class="rounded-xl border p-4 flex items-center justify-between transition-colors relative overflow-hidden"

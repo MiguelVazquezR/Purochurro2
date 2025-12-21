@@ -206,7 +206,7 @@ class PayrollService
             if ($dayIsAttendance && $operation && $operation->is_closed) {
                 $dailySales = $operation->sales->sum('total');
                 if ($dailySales > 0) {
-                    $baseCommission = floor(($dailySales / 320) / 10) * 10;
+                    $baseCommission = floor(($dailySales / 20) / 10) * 10;
                     $finalCommission = $baseCommission * $shiftsCount;
 
                     if ($finalCommission > 0) {

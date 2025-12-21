@@ -5,7 +5,7 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import dayjs from 'dayjs';
 import 'dayjs/locale/es-mx';
 import Button from 'primevue/button';
-import Tag from 'primevue/tag';
+import Tooltip from 'primevue/tooltip'; // Aseguramos directiva
 
 dayjs.locale('es-mx');
 
@@ -26,6 +26,11 @@ const formatCurrency = (value) => {
 };
 
 const formatDate = (date) => dayjs(date).format('D MMM YYYY');
+
+const formatDateDay = (dateStr) => {
+    if (!dateStr) return '';
+    return dayjs(dateStr).format('ddd D');
+};
 
 // Formulario para cierre (acción POST)
 const form = useForm({
@@ -102,7 +107,7 @@ const closePayroll = () => {
                         <!-- Total Individual -->
                         <div
                             class="text-right w-full sm:w-auto flex flex-row sm:flex-col justify-between items-center sm:items-end">
-                            <span class="text-xs text-gray-500 uppercase font-bold sm:mb-1">Neto a Pagar</span>
+                            <span class="text-xs text-gray-500 uppercase font-bold sm:mb-1">Neto a pagar</span>
                             <span
                                 class="text-xl font-black text-emerald-600 font-mono bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-100">{{
                                 formatCurrency(item.total_pay) }}</span>
@@ -116,43 +121,49 @@ const closePayroll = () => {
                         <div class="space-y-3">
                             <h3
                                 class="font-bold text-gray-900 border-b border-gray-200 pb-2 mb-3 flex items-center gap-2">
-                                <i class="pi pi-calendar text-gray-400"></i> Asistencia
+                                <i class="pi pi-calendar text-gray-400"></i> Asistencia (Devengado)
                             </h3>
 
-                            <div class="flex justify-between items-center py-1">
-                                <span class="text-gray-600">Días Trabajados</span>
-                                <span class="font-mono font-bold bg-gray-100 px-2 py-0.5 rounded text-gray-800">{{
-                                    item.breakdown?.days_worked || 0 }}</span>
+                            <!-- Días Trabajados -->
+                            <div class="flex justify-between items-center py-1 border-b border-gray-50 pb-1">
+                                <span class="text-gray-600">Turnos trabajados</span>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs text-gray-400 font-medium">({{ item.breakdown?.days_worked || 0 }})</span>
+                                    <span class="font-mono font-bold text-gray-800">{{ formatCurrency(item.totals_breakdown?.salary_normal) }}</span>
+                                </div>
                             </div>
 
                             <!-- Festivos Laborados -->
                             <div v-if="item.breakdown?.holidays_worked > 0"
-                                class="flex justify-between items-center py-1">
-                                <span class="text-yellow-700 font-medium">Festivos Laborados</span>
-                                <span
-                                    class="font-mono font-bold bg-yellow-50 text-yellow-800 px-2 py-0.5 rounded border border-yellow-100">+{{
-                                    item.breakdown.holidays_worked }}</span>
+                                class="flex justify-between items-center py-1 border-b border-yellow-50 pb-1">
+                                <span class="text-yellow-700 font-medium">Festivos laborados</span>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs text-yellow-600 font-medium bg-yellow-50 px-1 rounded">+{{ item.breakdown.holidays_worked }}</span>
+                                    <span class="font-mono font-bold text-yellow-800">{{ formatCurrency(item.totals_breakdown?.salary_holidays_worked) }}</span>
+                                </div>
                             </div>
 
                             <!-- Vacaciones -->
-                            <div v-if="item.breakdown?.vacations > 0" class="flex justify-between items-center py-1">
+                            <div v-if="item.breakdown?.vacations > 0" class="flex justify-between items-center py-1 border-b border-blue-50 pb-1">
                                 <span class="text-blue-600 font-medium">Vacaciones</span>
-                                <span
-                                    class="font-mono font-bold bg-blue-50 text-blue-800 px-2 py-0.5 rounded border border-blue-100">{{
-                                    item.breakdown.vacations }}</span>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs text-blue-500 font-medium">({{ item.breakdown.vacations }})</span>
+                                    <span class="font-mono font-bold text-blue-800">{{ formatCurrency(item.totals_breakdown?.salary_vacations) }}</span>
+                                </div>
                             </div>
 
                             <!-- Descansos Festivos -->
                             <div v-if="item.breakdown?.holidays_rest > 0"
-                                class="flex justify-between items-center py-1">
-                                <span class="text-emerald-600 font-medium">Festivos (Descanso)</span>
-                                <span
-                                    class="font-mono font-bold bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded border border-emerald-100">{{
-                                    item.breakdown.holidays_rest }}</span>
+                                class="flex justify-between items-center py-1 border-b border-emerald-50 pb-1">
+                                <span class="text-emerald-600 font-medium">Festivos (descanso)</span>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs text-emerald-500 font-medium">({{ item.breakdown.holidays_rest }})</span>
+                                    <span class="font-mono font-bold text-emerald-800">{{ formatCurrency(item.totals_breakdown?.salary_holidays_rest) }}</span>
+                                </div>
                             </div>
                         </div>
 
-                        <!-- Columna 2: Incidencias Negativas -->
+                        <!-- Columna 2: Incidencias y Deducciones -->
                         <div class="space-y-3">
                             <h3
                                 class="font-bold text-gray-900 border-b border-gray-200 pb-2 mb-3 flex items-center gap-2">
@@ -161,33 +172,35 @@ const closePayroll = () => {
 
                             <!-- Faltas -->
                             <div v-if="item.breakdown?.absences > 0" class="flex justify-between items-center py-1">
-                                <span class="text-red-600 font-medium">Faltas Injustificadas</span>
-                                <span
-                                    class="font-mono font-bold bg-red-50 text-red-800 px-2 py-0.5 rounded border border-red-100">-{{
-                                    item.breakdown.absences }}</span>
+                                <span class="text-red-600 font-medium">Faltas injustificadas</span>
+                                <span class="font-mono font-bold bg-red-50 text-red-800 px-2 py-0.5 rounded border border-red-100">-{{ item.breakdown.absences }}</span>
                             </div>
 
                             <!-- Retardos -->
                             <div v-if="item.breakdown?.lates > 0" class="flex justify-between items-center py-1">
                                 <span class="text-orange-600 font-medium">Retardos</span>
-                                <span
-                                    class="font-mono font-bold bg-orange-50 text-orange-800 px-2 py-0.5 rounded border border-orange-100">{{
-                                    item.breakdown.lates }}</span>
+                                <span class="font-mono font-bold bg-orange-50 text-orange-800 px-2 py-0.5 rounded border border-orange-100">{{ item.breakdown.lates }}</span>
                             </div>
 
-                            <!-- Permisos sin goce -->
-                            <div v-if="item.breakdown?.permissions > 0" class="flex justify-between items-center py-1">
-                                <span class="text-gray-500">Permisos s/goce</span>
-                                <span class="font-mono font-bold bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{{
-                                    item.breakdown.permissions }}</span>
+                            <!-- Incapacidades (Con dinero) -->
+                            <div v-if="item.breakdown?.incapacity > 0" class="flex justify-between items-center py-1 border-b border-purple-50 pb-1">
+                                <span class="text-purple-600 font-medium">Incapacidades (60%)</span>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs text-purple-400 font-medium">({{ item.breakdown.incapacity }})</span>
+                                    <span class="font-mono font-bold text-purple-800">{{ formatCurrency(item.totals_breakdown?.salary_incapacity) }}</span>
+                                </div>
                             </div>
 
-                            <!-- Incapacidades -->
-                            <div v-if="item.breakdown?.incapacity > 0" class="flex justify-between items-center py-1">
-                                <span class="text-purple-600 font-medium">Incapacidades</span>
-                                <span
-                                    class="font-mono font-bold bg-purple-50 text-purple-800 px-2 py-0.5 rounded border border-purple-100">{{
-                                    item.breakdown.incapacity }}</span>
+                            <!-- Permisos Con Goce -->
+                            <div v-if="item.totals_breakdown?.salary_permissions > 0" class="flex justify-between items-center py-1">
+                                <span class="text-gray-600">Permisos C/Goce</span>
+                                <span class="font-mono font-bold text-gray-800">{{ formatCurrency(item.totals_breakdown.salary_permissions) }}</span>
+                            </div>
+
+                            <!-- Permisos Sin Goce -->
+                            <div v-if="item.breakdown?.permissions > 0 && (!item.totals_breakdown?.salary_permissions || item.totals_breakdown?.salary_permissions == 0)" class="flex justify-between items-center py-1">
+                                <span class="text-gray-500">Permisos S/Goce</span>
+                                <span class="font-mono font-bold bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{{ item.breakdown.permissions }}</span>
                             </div>
 
                             <div v-if="!item.breakdown?.absences && !item.breakdown?.lates && !item.breakdown?.permissions && !item.breakdown?.incapacity"
@@ -196,43 +209,58 @@ const closePayroll = () => {
                             </div>
                         </div>
 
-                        <!-- Columna 3: Percepciones Extra (Bonos) -->
+                        <!-- Columna 3: Bonos y Comisiones -->
                         <div class="space-y-3">
                             <h3
                                 class="font-bold text-gray-900 border-b border-gray-200 pb-2 mb-3 flex items-center gap-2">
-                                <i class="pi pi-wallet text-gray-400"></i> Bonos y Extras
+                                <i class="pi pi-wallet text-gray-400"></i> Bonos y comisiones
                             </h3>
 
-                            <div class="flex justify-between items-center py-1">
-                                <span class="text-gray-600">Total Bonos</span>
-                                <span class="font-mono font-bold text-emerald-600">{{ formatCurrency(item.total_bonuses)
-                                    }}</span>
-                            </div>
-
-                            <!-- Desglose de bonos específicos -->
-                            <div v-if="item.breakdown?.bonuses && item.breakdown.bonuses.length > 0"
-                                class="mt-2 pl-3 border-l-2 border-emerald-100 space-y-2">
-                                <div v-for="(bonus, idx) in item.breakdown.bonuses" :key="idx"
-                                    class="flex justify-between items-center text-xs text-gray-600">
-                                    <div class="flex items-center gap-1">
-                                        <!-- Íconos indicadores de tipo de bono -->
-                                        <i v-if="bonus.type === 'manual'" 
-                                           class="pi pi-user-edit text-[10px] text-blue-500" 
-                                           v-tooltip.top="'Manual'"></i>
-                                        <i v-else-if="bonus.type === 'recurring_rule'" 
-                                           class="pi pi-cog text-[10px] text-purple-500" 
-                                           v-tooltip.top="'Calculado por Regla'"></i>
-                                        <i v-else 
-                                           class="pi pi-refresh text-[10px] text-orange-500" 
-                                           v-tooltip.top="'Recurrente Fijo'"></i>
-                                        
-                                        <span>{{ bonus.name }}</span>
+                            <!-- TOTAL COMISIONES -->
+                            <div v-if="item.total_commissions > 0" class="mb-4">
+                                <div class="flex justify-between items-center py-1 font-bold text-emerald-700 bg-emerald-50/50 px-2 -mx-2 rounded">
+                                    <span>Total comisiones</span>
+                                    <span class="font-mono">{{ formatCurrency(item.total_commissions) }}</span>
+                                </div>
+                                
+                                <!-- Desglose de Comisiones Diario -->
+                                <div v-if="item.breakdown?.commissions && item.breakdown.commissions.length > 0" 
+                                     class="mt-1 space-y-1 pl-2 border-l-2 border-emerald-100">
+                                    <div v-for="(comm, idx) in item.breakdown.commissions" :key="'c'+idx" 
+                                         class="flex justify-between items-center text-xs text-gray-600">
+                                        <span>
+                                            {{ formatDateDay(comm.date) }} 
+                                            <span v-if="comm.is_double" class="text-[10px] bg-emerald-100 text-emerald-700 px-1 rounded ml-1 font-bold">x2</span>
+                                        </span>
+                                        <span class="font-mono">{{ formatCurrency(comm.amount) }}</span>
                                     </div>
-                                    <span class="font-medium">{{ formatCurrency(bonus.amount) }}</span>
                                 </div>
                             </div>
-                            <div v-else class="text-gray-400 italic text-xs py-2 bg-gray-50 rounded text-center">
-                                Sin bonos asignados
+
+                            <!-- TOTAL BONOS -->
+                            <div v-if="item.total_bonuses > 0">
+                                <div class="flex justify-between items-center py-1">
+                                    <span class="text-gray-600 font-bold">Total bonos</span>
+                                    <span class="font-mono font-bold text-gray-800">{{ formatCurrency(item.total_bonuses) }}</span>
+                                </div>
+
+                                <!-- Desglose de bonos específicos -->
+                                <div v-if="item.breakdown?.bonuses && item.breakdown.bonuses.length > 0"
+                                    class="mt-2 pl-2 border-l-2 border-blue-100 space-y-2">
+                                    <div v-for="(bonus, idx) in item.breakdown.bonuses" :key="idx"
+                                        class="flex justify-between items-center text-xs text-gray-600">
+                                        <div class="flex items-center gap-1">
+                                            <i v-if="bonus.type === 'manual'" class="pi pi-user-edit text-[10px] text-blue-400"></i>
+                                            <i v-else-if="bonus.type === 'recurring_rule'" class="pi pi-cog text-[10px] text-purple-400"></i>
+                                            <span>{{ bonus.name }}</span>
+                                        </div>
+                                        <span class="font-medium">{{ formatCurrency(bonus.amount) }}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div v-if="item.total_commissions == 0 && item.total_bonuses == 0" class="text-gray-400 italic text-xs py-2 bg-gray-50 rounded text-center">
+                                Sin bonos ni comisiones
                             </div>
                         </div>
 
@@ -240,7 +268,7 @@ const closePayroll = () => {
                 </div>
             </div>
 
-            <!-- Acciones Finales (Sticky Bottom opcional o fijo al final) -->
+            <!-- Acciones Finales -->
             <div class="mt-8">
                 <div v-if="!isClosed" class="flex justify-end">
                     <div
@@ -249,14 +277,14 @@ const closePayroll = () => {
                             <i class="pi pi-exclamation-triangle text-yellow-600 text-2xl"></i>
                         </div>
                         <div class="text-center sm:text-left">
-                            <h4 class="font-bold text-yellow-900 text-lg">Confirmación de Cierre</h4>
+                            <h4 class="font-bold text-yellow-900 text-lg">Confirmación de cierre</h4>
                             <p class="text-sm text-yellow-800 mb-4 sm:mb-0 max-w-lg">
                                 Al cerrar la nómina se generarán los recibos oficiales y se acumularán las vacaciones
                                 correspondientes.
                                 <strong>Esta acción no se puede deshacer.</strong>
                             </p>
                         </div>
-                        <Button label="Cerrar Nómina" icon="pi pi-check-circle" @click="closePayroll"
+                        <Button label="Cerrar nómina" icon="pi pi-check-circle" @click="closePayroll"
                             :loading="form.processing"
                             class="!bg-gray-900 !border-gray-900 hover:!bg-black whitespace-nowrap w-full sm:w-auto shadow-md" />
                     </div>

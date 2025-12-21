@@ -29,6 +29,12 @@ const formatCurrency = (value) => {
     }).format(value || 0);
 };
 
+const formatDateDay = (dateStr) => {
+    if (!dateStr) return '';
+    // Ejemplo: "Lun 25"
+    return dayjs(dateStr).format('ddd D');
+};
+
 // --- Lógica de Selección ---
 const selectedIds = ref([]);
 
@@ -76,9 +82,6 @@ const getReceiptData = (dataItem) => {
     };
 
     // 2. Festivos (Desglose Laborado vs No Laborado)
-    // El servicio nos da el total de dinero de festivos en 'salary_holidays'.
-    // Vamos a desglosarlo visualmente para el recibo.
-    
     const holidaysRestCount = breakdown.holidays_rest || 0;
     const holidaysWorkedCount = breakdown.holidays_worked || 0;
     const totalHolidayMoney = moneyBreakdown.salary_holidays || 0;
@@ -87,16 +90,10 @@ const getReceiptData = (dataItem) => {
     const holidaysRestAmount = holidaysRestCount * baseSalary;
 
     // B. Festivo Laborado: Es el remanente del dinero total de festivos
-    // (Esto asegura que la suma de A + B siempre cuadre con el total calculado por el servicio)
     let holidaysWorkedAmount = 0;
     if (holidaysWorkedCount > 0) {
         holidaysWorkedAmount = totalHolidayMoney - holidaysRestAmount;
-        // Protección visual por si el cálculo da negativo (raro, solo si configuración cambió)
         if (holidaysWorkedAmount < 0) holidaysWorkedAmount = 0; 
-    } else if (holidaysRestCount > 0 && totalHolidayMoney > 0) {
-        // Si solo hay descansados, todo el dinero es de ahí (ajuste de precisión)
-        // holidaysRestAmount = totalHolidayMoney; 
-        // (Opcional, pero arriba ya asignamos baseSalary * count, que es lo estándar)
     }
 
     const holidaysRest = {
@@ -123,17 +120,24 @@ const getReceiptData = (dataItem) => {
     // 4. Otros Conceptos
     const bonusesList = breakdown.bonuses || []; // Bonos reales del servicio
     
-    // Comisiones (Visual Frontend - Ejemplo)
-    const commissions = { count: 0, amount: 250, label: 'Comisiones (ventas)' }; 
-    
-    let totalPay = parseFloat(dataItem.total_pay);
+    // 5. Comisiones (Actualizado: Desglose Diario)
+    // Buscamos 'total_commissions' en la raíz (cálculo en vivo) o dentro del breakdown (histórico/cerrado)
+    const commissionTotal = dataItem.total_commissions !== undefined
+        ? parseFloat(dataItem.total_commissions)
+        : (parseFloat(breakdown.commissions_total) || 0);
 
-    // Sumar comisión default si trabajó (Lógica frontend existente)
-    if (workedDays.count > 0) {
-        totalPay += commissions.amount;
-    } else {
-        commissions.amount = 0;
-    }
+    // Intentamos buscar el detalle diario inyectado por el controlador (o guardado en JSON)
+    const commissionsDetailList = dataItem.commissions_detail || breakdown.commissions_detail || [];
+
+    const commissions = { 
+        count: breakdown.days_worked || 0,
+        amount: commissionTotal, 
+        label: 'Comisiones',
+        detail: commissionsDetailList // Nueva propiedad con la lista de días
+    }; 
+    
+    // El total ya viene calculado correctamente desde el backend, incluyendo comisiones.
+    let totalPay = parseFloat(dataItem.total_pay);
 
     return { 
         concepts: {
@@ -259,18 +263,34 @@ const print = () => window.print();
                                         <td class="py-0.5 px-1 text-right font-mono font-medium text-gray-900">{{ formatCurrency(receipt.concepts.vacations.amount) }}</td>
                                     </tr>
 
+                                    <!-- COMISIONES (Lógica Dual: Detallada o Resumida) -->
+                                    <template v-if="receipt.concepts.commissions.amount > 0">
+                                        <!-- Si tenemos detalle por día, mostramos N filas -->
+                                        <template v-if="receipt.concepts.commissions.detail.length > 0">
+                                            <tr v-for="(commDay, cIdx) in receipt.concepts.commissions.detail" :key="'comm'+cIdx">
+                                                <td class="py-0.5 px-1 text-gray-800 capitalize">
+                                                    Comisión {{ formatDateDay(commDay.date) }}
+                                                </td>
+                                                <!-- AHORA MOSTRAMOS "2" SI ES DOBLE TURNO -->
+                                                <td class="py-0.5 px-1 text-center text-gray-500">{{ commDay.is_double ? 2 : 1 }}</td>
+                                                <td class="py-0.5 px-1 text-right font-mono font-medium text-gray-900">{{ formatCurrency(commDay.amount) }}</td>
+                                            </tr>
+                                        </template>
+                                        <!-- Fallback: Si no hay detalle (recibos viejos), mostrar resumen -->
+                                        <template v-else>
+                                            <tr>
+                                                <td class="py-0.5 px-1 text-gray-800">Comisiones</td>
+                                                <td class="py-0.5 px-1 text-center text-gray-500">{{ receipt.concepts.commissions.count }}</td>
+                                                <td class="py-0.5 px-1 text-right font-mono font-medium text-gray-900">{{ formatCurrency(receipt.concepts.commissions.amount) }}</td>
+                                            </tr>
+                                        </template>
+                                    </template>
+
                                     <!-- LISTA DE BONOS REALES -->
                                     <tr v-for="(bonus, idx) in receipt.concepts.bonuses_list" :key="'b'+idx">
                                         <td class="py-0.5 px-1 text-gray-800">{{ bonus.name }}</td>
                                         <td class="py-0.5 px-1 text-center text-gray-500">1</td>
                                         <td class="py-0.5 px-1 text-right font-mono font-medium text-gray-900">{{ formatCurrency(bonus.amount) }}</td>
-                                    </tr>
-
-                                    <!-- Comisiones Default -->
-                                    <tr v-if="receipt.concepts.commissions.amount > 0">
-                                        <td class="py-0.5 px-1 text-gray-800">Comisiones (Ventas)</td>
-                                        <td class="py-0.5 px-1 text-center text-gray-500">-</td>
-                                        <td class="py-0.5 px-1 text-right font-mono font-medium text-gray-900">{{ formatCurrency(receipt.concepts.commissions.amount) }}</td>
                                     </tr>
                                 </tbody>
                             </table>
