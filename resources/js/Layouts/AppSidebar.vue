@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watchEffect } from 'vue';
 import { usePage, Link } from '@inertiajs/vue3';
+import Dialog from 'primevue/dialog';
 
 const props = defineProps({
     visible: Boolean, // Para móvil (Drawer)
@@ -15,6 +16,7 @@ const user = page.props.auth.user;
 const isAdmin = computed(() => user.id === 1);
 
 const expandedGroups = ref({});
+const showInfoModal = ref(false); // Control del modal de información
 
 // Lógica de Menú
 const menuItems = computed(() => {
@@ -144,10 +146,6 @@ watchEffect(() => {
     </Drawer>
 
     <!-- DESKTOP: Sidebar Fijo Dinámico -->
-    <!-- 
-         Usamos 'desktopVisible' para controlar la transformación (slide-in/out).
-         El ancho sigue dependiendo de 'collapsed'.
-    -->
     <aside 
         class="hidden md:flex flex-col fixed left-0 top-16 bottom-0 bg-white/80 backdrop-blur-xl border-r border-surface-200 z-40 transition-all duration-300 ease-in-out"
         :class="[
@@ -247,18 +245,68 @@ watchEffect(() => {
             </template>
         </div>
         
-        <!-- Footer -->
+        <!-- Footer Clickable (Abre Modal de DTW) -->
         <div 
-            class="mt-auto p-4 border-t border-surface-100 bg-white/50 backdrop-blur-sm overflow-hidden transition-all duration-300"
+            class="mt-auto p-4 border-t border-surface-100 bg-white/50 backdrop-blur-sm overflow-hidden transition-all duration-300 cursor-pointer hover:bg-gray-50 group"
             :class="collapsed ? 'items-center flex justify-center' : ''"
+            @click="showInfoModal = true"
+            title="Ver información del sistema"
         >
             <div class="text-xs text-surface-400 whitespace-nowrap" :class="collapsed ? 'text-center' : ''">
-                <p v-if="!collapsed">v1.0.0</p>
-                <p v-if="!collapsed" class="font-light">Sistema de Gestión</p>
-                <i v-else class="pi pi-info-circle text-lg"></i>
+                <p v-if="!collapsed" class="group-hover:text-blue-600 transition-colors font-bold">v2.0.0</p>
+                <p v-if="!collapsed" class="font-light">Punto de venta</p>
+                <i v-else class="pi pi-info-circle text-lg text-surface-400 group-hover:text-blue-600 transition-colors"></i>
             </div>
         </div>
     </aside>
+
+    <!-- Modal de Información (DTW Agency) -->
+    <Dialog v-model:visible="showInfoModal" modal header="Acerca del Sistema" :style="{ width: '25rem' }" :draggable="false">
+        <div class="flex flex-col items-center text-center">
+            <!-- Logo -->
+            <img src="/images/DTW_logo_negro.webp" alt="DTW Agency" class="h-20 w-auto mb-4 object-contain" />
+
+            <h3 class="text-lg font-bold text-gray-800 pt-3 border-t">Punto de venta</h3>
+            <span class="text-xs font-semibold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full mt-1">v2.0.0</span>
+            
+            <p class="text-gray-500 text-sm mt-4 leading-relaxed">
+                Desarrollamos soluciones tecnológicas a medida para potenciar tu negocio.
+            </p>
+
+            <div class="bg-gray-50 rounded-lg p-3 w-full mt-4 text-left border border-gray-100">
+                <p class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Especialidades</p>
+                <ul class="text-sm text-gray-600 space-y-1">
+                    <li class="flex items-center gap-2"><i class="pi pi-check text-green-500 text-xs"></i> ERP Completos</li>
+                    <li class="flex items-center gap-2"><i class="pi pi-check text-green-500 text-xs"></i> Gestión de Clientes (CRM)</li>
+                    <li class="flex items-center gap-2"><i class="pi pi-check text-green-500 text-xs"></i> Control de Inventarios</li>
+                    <li class="flex items-center gap-2"><i class="pi pi-check text-green-500 text-xs"></i> Reportes Estadísticos</li>
+                </ul>
+            </div>
+            
+            <!-- Datos de Contacto y Botón Whatsapp -->
+            <div class="mt-4 w-full flex flex-col items-center gap-3">
+                <!-- Email -->
+                <a href="mailto:contacto@dtw.com.mx" class="text-sm text-gray-600 hover:text-blue-600 flex items-center gap-2 transition-colors">
+                    <i class="pi pi-envelope"></i> contacto@dtw.com.mx
+                </a>
+
+                <!-- Botón WhatsApp -->
+                <a 
+                    href="https://wa.me/523315314045" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-2.5 px-4 rounded-lg shadow-sm hover:shadow-md transition-all duration-200 flex items-center justify-center gap-2 group"
+                >
+                    <i class="pi pi-whatsapp text-xl group-hover:scale-110 transition-transform"></i>
+                    <span>Soporte Técnico</span>
+                </a>
+            </div>
+
+            <div class="mt-6 text-xs text-gray-400">
+                &copy; {{ new Date().getFullYear() }} DTW. Todos los derechos reservados.
+            </div>
+        </div>
+    </Dialog>
 </template>
 
 <style scoped>

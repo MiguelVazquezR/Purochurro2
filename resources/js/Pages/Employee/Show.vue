@@ -148,7 +148,7 @@ const reactivateEmployee = () => {
                         </div>
                         <p class="text-surface-500 text-sm mt-1 flex items-center gap-2">
                             <i class="pi pi-id-card text-xs"></i> 
-                            <span>ID: {{ employee.id }}</span>
+                            <span>ID: {{ employee.user_id }}</span>
                             <span class="text-surface-300">|</span>
                             <span>{{ employee.email }}</span>
                         </p>

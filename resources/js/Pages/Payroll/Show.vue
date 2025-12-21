@@ -288,7 +288,7 @@ const getCellClass = (day) => {
                                             @click="$inertia.visit(route('employees.show', row.employee.id))"
                                                 :title="row.employee.full_name">{{
                                                     row.employee.full_name }}</div>
-                                            <div class="text-xs text-surface-500 ">ID: {{ row.employee.id }}</div>
+                                            <div class="text-xs text-surface-500 ">ID: {{ row.employee.user.id }}</div>
                                         </div>
                                     </div>
                                 </td>

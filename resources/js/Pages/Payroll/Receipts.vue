@@ -220,7 +220,7 @@ const print = () => window.print();
                             </div>
                             <div class="text-right leading-none">
                                 <h2 class="text-sm font-bold">{{ empData.employee.first_name }} {{ empData.employee.last_name }}</h2>
-                                <div class="text-xs text-gray-500 mt-0.5">ID: <span class="font-mono font-bold text-black">{{ empData.employee.id }}</span> | Sueldo Turno: <span class="font-mono font-bold text-black">{{ formatCurrency(empData.employee.base_salary) }}</span></div>
+                                <div class="text-xs text-gray-500 mt-0.5">ID: <span class="font-mono font-bold text-black">{{ empData.employee.user_id }}</span> | Sueldo Turno: <span class="font-mono font-bold text-black">{{ formatCurrency(empData.employee.base_salary) }}</span></div>
                             </div>
                         </div>
 

@@ -22,46 +22,117 @@ class AttendanceTerminalController extends Controller
     }
 
     /**
-     * Endpoint principal: Recibe foto, identifica y registra.
+     * [WEB] Obtiene el estado de asistencia del día para el empleado logueado.
+     * Ruta: GET /attendance/status (name: attendance.status)
      */
-    public function register(Request $request)
+    public function status(Request $request)
+    {
+        $user = auth()->user();
+        // Buscar empleado asociado al usuario logueado
+        $employee = Employee::where('user_id', $user->id)->first();
+
+        if (!$employee) {
+            return response()->json(['status' => 'error', 'message' => 'Usuario no vinculado a un empleado.']);
+        }
+
+        $attendance = Attendance::where('employee_id', $employee->id)
+            ->whereDate('date', Carbon::today())
+            ->first();
+
+        // Determinar estado para la UI
+        $state = 'none'; // Sin registro hoy
+        if ($attendance) {
+            if ($attendance->check_in && !$attendance->check_out) {
+                $state = 'checked_in'; // Ya entró, falta salir
+            } elseif ($attendance->check_in && $attendance->check_out) {
+                $state = 'completed'; // Jornada terminada
+            }
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'state' => $state,
+            'check_in' => $attendance?->check_in ? Carbon::parse($attendance->check_in)->format('h:i A') : null,
+            'check_out' => $attendance?->check_out ? Carbon::parse($attendance->check_out)->format('h:i A') : null,
+        ]);
+    }
+
+    /**
+     * [WEB] Registra asistencia para el usuario logueado con validación facial.
+     * Ruta: POST /attendance/web (name: attendance.web)
+     */
+    public function registerWeb(Request $request)
     {
         $request->validate([
-            'image' => 'required|string', // Base64 image
+            'image' => 'required|string', // Base64
         ]);
 
+        $user = auth()->user();
+        $employee = Employee::where('user_id', $user->id)->first();
+
+        if (!$employee || !$employee->aws_face_id) {
+            return response()->json([
+                'status' => 'error', 
+                'message' => 'No tienes perfil biométrico configurado.'
+            ], 403);
+        }
+
         // 1. Decodificar imagen
-        // Asumimos formato "data:image/jpeg;base64,..."
         $imageParts = explode(";base64,", $request->image);
         $imageBytes = base64_decode(end($imageParts));
 
-        // 2. Buscar en AWS Rekognition
+        // 2. Buscar en AWS
         $match = $this->rekognition->searchFace($imageBytes);
 
         if (!$match) {
             return response()->json([
-                'status' => 'error',
-                'message' => 'Rostro no reconocido. Intente nuevamente.'
-            ], 404);
+                'status' => 'error', 
+                'message' => 'No se detectó ningún rostro válido.'
+            ], 422);
         }
 
-        // 3. Buscar Empleado
+        // 3. SEGURIDAD: Verificar que el rostro detectado sea el del usuario logueado
+        if ($match['face_id'] !== $employee->aws_face_id) {
+             return response()->json([
+                 'status' => 'error', 
+                 'message' => 'Validación biométrica fallida: El rostro no coincide con tu perfil.'
+             ], 403);
+        }
+
+        // 4. Reutilizar la lógica de registro existente
+        return $this->processAttendance($employee, $request->image);
+    }
+
+    /**
+     * [TERMINAL] Endpoint público/kiosco: Identifica cualquier empleado por su rostro.
+     */
+    public function register(Request $request)
+    {
+        $request->validate(['image' => 'required|string']);
+
+        $imageParts = explode(";base64,", $request->image);
+        $imageBytes = base64_decode(end($imageParts));
+
+        $match = $this->rekognition->searchFace($imageBytes);
+
+        if (!$match) {
+            return response()->json(['status' => 'error', 'message' => 'Rostro no reconocido.'], 404);
+        }
+
         $employee = Employee::where('aws_face_id', $match['face_id'])
             ->where('is_active', true)
             ->first();
 
         if (!$employee) {
-            // Caso raro: Existe en AWS pero no en DB local (quizás soft deleted)
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Identidad válida pero empleado no activo.'
-            ], 404);
+            return response()->json(['status' => 'error', 'message' => 'Empleado no activo.'], 404);
         }
 
-        // 4. Lógica de Asistencia
         return $this->processAttendance($employee, $request->image);
     }
 
+    /**
+     * Lógica centralizada de registro de asistencia
+     */
     private function processAttendance(Employee $employee, string $base64Image)
     {
         $now = Carbon::now();
@@ -77,9 +148,9 @@ class AttendanceTerminalController extends Controller
             $type = '';
             $message = '';
 
-            // --- Lógica: CHECK-IN ---
+            // --- CHECK-IN ---
             if (!$attendance) {
-                // Buscamos horario para calcular retardos
+                // Calcular retardo
                 $schedule = WorkSchedule::with('shift')
                     ->where('employee_id', $employee->id)
                     ->whereDate('date', $today)
@@ -87,7 +158,6 @@ class AttendanceTerminalController extends Controller
 
                 $isLate = false;
                 if ($schedule && $schedule->shift) {
-                    // Damos 15 mins de tolerancia (ajustable)
                     $entryLimit = Carbon::parse($today . ' ' . $schedule->shift->start_time)->addMinutes(15);
                     if ($now->greaterThan($entryLimit)) {
                         $isLate = true;
@@ -102,40 +172,38 @@ class AttendanceTerminalController extends Controller
                     'is_late' => $isLate,
                 ]);
 
-                // Guardar Foto Entrada
                 $attendance->addMediaFromBase64($base64Image)
                     ->usingFileName("checkin_{$employee->id}_{$today}.jpg")
                     ->toMediaCollection('check_in_photo');
 
                 $type = 'entrada';
-                $message = "Bienvenido, {$employee->first_name}. " . ($isLate ? "(Retardo registrado)" : "");
+                $message = "Bienvenido, {$employee->first_name}. " . ($isLate ? "(Retardo)" : "");
             } 
-            // --- Lógica: CHECK-OUT ---
+            // --- CHECK-OUT ---
             elseif ($attendance->check_out === null) {
-                // Validación simple: Evitar doble checada inmediata (ej. en menos de 5 min)
+                // Evitar doble check inmediato (5 min)
                 $checkInTime = Carbon::parse($attendance->date->format('Y-m-d') . ' ' . $attendance->check_in);
                 if ($now->diffInMinutes($checkInTime) < 5) {
                     return response()->json([
                         'status' => 'warning',
-                        'message' => 'Entrada registrada hace poco. Espere para registrar salida.'
+                        'message' => 'Entrada muy reciente. Espera para registrar salida.'
                     ]);
                 }
 
                 $attendance->update(['check_out' => $time]);
 
-                // Guardar Foto Salida
                 $attendance->addMediaFromBase64($base64Image)
                     ->usingFileName("checkout_{$employee->id}_{$today}.jpg")
                     ->toMediaCollection('check_out_photo');
 
                 $type = 'salida';
-                $message = "Hasta luego, {$employee->first_name}. Turno finalizado.";
+                $message = "Hasta luego, {$employee->first_name}.";
             } 
-            // --- Lógica: YA CHECÓ SALIDA ---
+            // --- YA TERMINÓ ---
             else {
                 return response()->json([
                     'status' => 'info',
-                    'message' => "{$employee->first_name}, ya registraste tu salida hoy."
+                    'message' => "{$employee->first_name}, ya registraste salida hoy."
                 ]);
             }
 
@@ -152,7 +220,7 @@ class AttendanceTerminalController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error("Attendance Error: " . $e->getMessage());
-            return response()->json(['status' => 'error', 'message' => 'Error interno al guardar asistencia.'], 500);
+            return response()->json(['status' => 'error', 'message' => 'Error interno.'], 500);
         }
     }
 }

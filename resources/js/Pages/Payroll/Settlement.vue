@@ -87,11 +87,15 @@ const closePayroll = () => {
                     <div
                         class="bg-gray-50 px-6 py-4 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                         <div class="flex items-center gap-4">
-                            <!-- Avatar Placeholder -->
-                            <div
+                            <!-- Avatar: Foto o Placeholder -->
+                            <img v-if="item.employee.profile_photo_url" 
+                                 :src="item.employee.profile_photo_url" 
+                                 class="w-12 h-12 rounded-full object-cover border border-gray-200 shadow-sm">
+                            <div v-else
                                 class="w-12 h-12 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center font-bold text-lg border border-orange-200 shadow-sm">
                                 {{ item.employee.first_name[0] }}{{ item.employee.last_name[0] }}
                             </div>
+
                             <div>
                                 <h2 class="text-lg font-bold text-gray-900">{{ item.employee.first_name }} {{
                                     item.employee.last_name }}</h2>
@@ -99,7 +103,8 @@ const closePayroll = () => {
                                     <span>Sueldo Base: <strong class="text-gray-700">{{
                                             formatCurrency(item.employee.base_salary) }}</strong></span>
                                     <span class="text-gray-300">|</span>
-                                    <span>ID: {{ item.employee.id }}</span>
+                                    <!-- ID de Usuario (Antes era employee.id) -->
+                                    <span>ID: {{ item.employee.user_id }}</span>
                                 </div>
                             </div>
                         </div>

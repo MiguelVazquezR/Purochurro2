@@ -320,7 +320,7 @@ class PayrollService
         $details['bonuses'] = $bonusResult['details'];
 
         return [
-            'employee' => $employee->only(['id', 'first_name', 'last_name', 'base_salary']),
+            'employee' => $employee->only(['id', 'first_name', 'last_name', 'base_salary', 'user_id', 'profile_photo_url']),
             'total_pay' => round($totalPay, 2),
             'days_worked' => $totalDaysWorked,
             'total_bonuses' => $bonusResult['total_amount'], // Total retornado por el servicio

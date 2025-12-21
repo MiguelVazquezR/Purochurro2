@@ -28,9 +28,13 @@ class DashboardController extends Controller
         // VISTA ADMINISTRADOR (ID 1)
         // ----------------------------------------------------
         if ($user->id === 1) {
-            // ... (Código de Admin sin cambios) ...
-            $salesToday = Sale::whereBetween('created_at', [$today->startOfDay(), $today->endOfDay()])->sum('total');
-            $expensesToday = Expense::whereBetween('date', [$today->startOfDay(), $today->endOfDay()])->sum('amount');
+            
+            // 1. CORRECCIÓN: Obtener ventas ligadas a la DailyOperation (Caja) de hoy
+            $dailyOperation = DailyOperation::whereDate('date', $today)->first();
+            $salesToday = $dailyOperation ? $dailyOperation->sales()->sum('total') : 0;
+
+            // CORRECCIÓN: Usar whereDate para asegurar que tome todos los gastos del día
+            $expensesToday = Expense::whereDate('date', $today)->sum('amount');
 
             $lowStockProducts = Product::withSum('inventories as stock', 'quantity')
                 ->orderBy('stock', 'asc')->take(5)->get()
@@ -46,7 +50,8 @@ class DashboardController extends Controller
                     'id' => $a->employee->id,
                     'name' => $a->employee->first_name . ' ' . $a->employee->last_name,
                     'photo' => $a->employee->profile_photo_url,
-                    'check_in' => $a->check_in ? Carbon::parse($a->check_in)->format('H:i') : '--:--',
+                    // 2. CORRECCIÓN: Formato de 12 horas (h:i A)
+                    'check_in' => $a->check_in ? Carbon::parse($a->check_in)->format('h:i A') : '--:--',
                 ]);
 
             $vacationEmployees = Attendance::whereDate('date', $today)
@@ -67,7 +72,8 @@ class DashboardController extends Controller
                     'name' => $s->employee->first_name . ' ' . $s->employee->last_name,
                     'photo' => $s->employee->profile_photo_url,
                     'shift' => $s->shift ? $s->shift->name : 'Turno',
-                    'start_time' => $s->shift ? Carbon::parse($s->shift->start_time)->format('H:i') : ''
+                    // 2. CORRECCIÓN: Formato de 12 horas (h:i A)
+                    'start_time' => $s->shift ? Carbon::parse($s->shift->start_time)->format('h:i A') : ''
                 ])->values();
 
             $upcomingBirthdays = Employee::where('is_active', true)
@@ -117,7 +123,6 @@ class DashboardController extends Controller
             ->first();
         
         // 2. Horario Completo de la Semana (Para el modal)
-        // Obtenemos todos los días de la semana, incluso si no hay turno asignado (aunque WorkSchedule suele crearse para todos)
         $weeklySchedule = WorkSchedule::with('shift')
             ->where('employee_id', $employee->id)
             ->whereBetween('date', [$startOfWeek, $endOfWeek])
@@ -126,12 +131,11 @@ class DashboardController extends Controller
             ->map(function ($s) {
                 return [
                     'id' => $s->id,
-                    'date_label' => $s->date->isoFormat('dddd D'), // Ej: "Lunes 25"
+                    'date_label' => $s->date->isoFormat('dddd D'), 
                     'shift_name' => $s->shift ? $s->shift->name : 'Descanso',
-                    // Formato 12 horas (h:i A)
                     'start_time' => $s->shift ? Carbon::parse($s->shift->start_time)->format('h:i A') : null,
                     'end_time' => $s->shift ? Carbon::parse($s->shift->end_time)->format('h:i A') : null,
-                    'color' => $s->shift ? $s->shift->color : '#9ca3af', // Gris si es descanso
+                    'color' => $s->shift ? $s->shift->color : '#9ca3af',
                     'is_today' => $s->date->isToday(),
                     'is_rest' => is_null($s->shift_id),
                 ];
@@ -179,7 +183,7 @@ class DashboardController extends Controller
                     : null,
                 'estimated_pay' => $payrollCalc['total_pay'],
                 'worked_days' => $payrollCalc['days_worked'],
-                'weekly_schedule' => $weeklySchedule, // Nuevo dato para el modal
+                'weekly_schedule' => $weeklySchedule,
                 'upcoming_birthdays' => $upcomingBirthdays,
             ]
         ]);
