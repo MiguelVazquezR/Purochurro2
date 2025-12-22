@@ -1,23 +1,24 @@
 <script setup>
-import { ref } from 'vue';
+import { ref, watch, computed } from 'vue';
 import { Head, Link, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import { FilterMatchMode } from '@primevue/core/api';
 import { useConfirm } from "primevue/useconfirm";
 import { useToast } from "primevue/usetoast";
+// Eliminamos FilterMatchMode ya que filtraremos en servidor
 
 const props = defineProps({
-    expenses: Array,
+    expenses: Object, // Cambiado de Array a Object para recibir el Paginator
+    filters: Object,  // Recibimos los filtros actuales del servidor
 });
 
 const confirm = useConfirm();
 const toast = useToast();
 const dt = ref();
 
-// --- Filtros ---
-const filters = ref({
-    global: { value: null, matchMode: FilterMatchMode.CONTAINS },
-});
+// --- Estado para Paginación y Filtros ---
+// Inicializamos el search con lo que viene del servidor o vacío
+const search = ref(props.filters?.search || '');
+const loading = ref(false);
 
 // --- Helpers de Formato ---
 const formatCurrency = (value) => {
@@ -34,6 +35,49 @@ const formatDate = (dateString) => {
         year: 'numeric',
         month: 'short',
         day: 'numeric'
+    });
+};
+
+// --- Manejo de Eventos de Tabla (Server Side) ---
+let searchTimeout = null;
+
+// Watch para búsqueda con Debounce
+watch(search, (value) => {
+    if (searchTimeout) clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+        loadParams({ search: value, page: 1 }); // Reset a página 1 al buscar
+    }, 300);
+});
+
+const onPage = (event) => {
+    // PrimeVue envía 'page' como índice base 0, Laravel usa base 1
+    const page = event.page + 1;
+    loadParams({ page });
+};
+
+const onSort = (event) => {
+    const sortField = event.sortField;
+    const sortOrder = event.sortOrder === 1 ? 'asc' : 'desc';
+    loadParams({ sortField, sortOrder });
+};
+
+const loadParams = (newParams) => {
+    loading.value = true;
+    
+    // Mezclamos los parámetros actuales (prop filters) con los nuevos
+    // Aseguramos mantener el estado actual si no cambia
+    const params = {
+        search: search.value,
+        sortField: props.filters?.sortField,
+        sortOrder: props.filters?.sortOrder,
+        page: props.expenses.current_page,
+        ...newParams
+    };
+
+    router.get(route('expenses.index'), params, {
+        preserveState: true,
+        preserveScroll: true,
+        onFinish: () => loading.value = false
     });
 };
 
@@ -90,15 +134,19 @@ const deleteExpense = (expense) => {
                 
                 <DataTable 
                     ref="dt"
-                    :value="expenses" 
-                    v-model:filters="filters"
-                    dataKey="id" 
+                    :value="expenses.data" 
+                    :lazy="true"
                     :paginator="true" 
-                    :rows="10"
+                    :rows="expenses.per_page"
+                    :totalRecords="expenses.total"
+                    :first="(expenses.current_page - 1) * expenses.per_page"
+                    :loading="loading"
+                    @page="onPage"
+                    @sort="onSort"
+                    dataKey="id"
                     :rowsPerPageOptions="[10, 20, 50]"
                     paginatorTemplate="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink CurrentPageReport RowsPerPageDropdown"
                     currentPageReportTemplate="Mostrando {first} a {last} de {totalRecords} gastos"
-                    :globalFilterFields="['concept', 'user.name', 'amount']"
                     class="p-datatable-sm"
                     :pt="{
                         root: { class: 'rounded-2xl overflow-hidden' },
@@ -115,7 +163,7 @@ const deleteExpense = (expense) => {
                                     <i class="pi pi-search text-surface-400" />
                                 </InputIcon>
                                 <InputText 
-                                    v-model="filters['global'].value" 
+                                    v-model="search" 
                                     placeholder="Buscar concepto..." 
                                     class="!rounded-full !bg-surface-50 !border-surface-200 focus:!ring-orange-200 w-full sm:w-80" 
                                 />
@@ -152,7 +200,9 @@ const deleteExpense = (expense) => {
                     </Column>
 
                     <!-- Columna: Usuario -->
-                    <Column field="user.name" header="Registrado por" sortable class="w-[150px] hidden md:table-cell">
+                    <!-- Nota: El sortable en relaciones anidadas requiere lógica extra en backend, 
+                         aquí asumo que solo ordenamos por columnas directas o lo ignorará el backend si no está mapeado -->
+                    <Column field="user.name" header="Registrado por" class="w-[150px] hidden md:table-cell">
                         <template #body="slotProps">
                             <div class="flex items-center gap-2">
                                 <Avatar 

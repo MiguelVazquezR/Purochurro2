@@ -136,6 +136,8 @@ class PayrollController extends Controller
                     'incident_label' => $incidentLabel,
                     'check_in' => $attendance?->check_in ? Carbon::parse($attendance->check_in)->format('H:i') : null,
                     'check_out' => $attendance?->check_out ? Carbon::parse($attendance->check_out)->format('H:i') : null,
+                    'check_in_photo' => $attendance?->getFirstMediaUrl('check_in_photo'),
+                    'check_out_photo' => $attendance?->getFirstMediaUrl('check_out_photo'),
                     'is_late' => $attendance?->is_late ?? false,
                     'late_ignored' => $attendance?->late_ignored ?? false,
                     'admin_notes' => $attendance?->admin_notes, 

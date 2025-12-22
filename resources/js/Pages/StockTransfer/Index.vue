@@ -1,8 +1,14 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useForm, Link } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { useToast } from "primevue/usetoast";
+import axios from 'axios';
+import ProgressSpinner from 'primevue/progressspinner';
+
+// --- IMPORTAR DRIVER.JS PARA EL TOUR ---
+import { driver } from "driver.js";
+import "driver.js/dist/driver.css";
 
 const props = defineProps({
     locations: Array,
@@ -10,6 +16,11 @@ const props = defineProps({
 });
 
 const toast = useToast();
+
+// Estados para el Tour
+// OPTIMIZACIÓN: Iniciamos en false para que el usuario experto pueda interactuar de inmediato.
+const isLoadingTour = ref(false); 
+const isTourActive = ref(false);
 
 const form = useForm({
     product_id: null,
@@ -55,13 +66,152 @@ const submit = () => {
         }
     });
 };
+
+// --- BLOQUEO DE INTERACCIÓN ROBUSTO ---
+const blockInteraction = (e) => {
+    // Si el tour no está activo, no hacemos nada
+    if (!isTourActive.value) return;
+
+    // Permitimos clics DENTRO de la ventana del tutorial (driver-popover)
+    // Esto asegura que los botones "Siguiente", "Anterior", "Entendido" sigan funcionando
+    if (e.target.closest && e.target.closest('.driver-popover')) {
+        return;
+    }
+
+    // Bloqueamos cualquier otra interacción
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+};
+
+const enableBlocking = () => {
+    isTourActive.value = true;
+    // Agregamos listeners en fase de CAPTURA (true) para interceptar antes que nadie
+    window.addEventListener('click', blockInteraction, true);
+    window.addEventListener('mousedown', blockInteraction, true);
+    window.addEventListener('touchstart', blockInteraction, true);
+    window.addEventListener('keydown', blockInteraction, true);
+};
+
+const disableBlocking = () => {
+    isTourActive.value = false;
+    window.removeEventListener('click', blockInteraction, true);
+    window.removeEventListener('mousedown', blockInteraction, true);
+    window.removeEventListener('touchstart', blockInteraction, true);
+    window.removeEventListener('keydown', blockInteraction, true);
+};
+
+// --- CONFIGURACIÓN DEL TOUR (ONBOARDING) ---
+const startTour = () => {
+    enableBlocking(); // ACTIVAR BLOQUEO
+
+    const tourDriver = driver({
+        showProgress: true,
+        allowClose: false,
+        showButtons: ['next', 'previous'],
+        doneBtnText: '¡Entendido!',
+        nextBtnText: 'Siguiente',
+        prevBtnText: 'Anterior',
+        steps: [
+            { 
+                element: '#tour-header-title', 
+                popover: { 
+                    title: 'Traspasos de Inventario', 
+                    description: 'Esta herramienta te permite mover productos entre distintas ubicaciones (ej. De Almacén a Cocina o a Carrito de Venta) para mantener el stock actualizado.',
+                    side: "bottom",
+                    align: 'start'
+                } 
+            },
+            { 
+                element: '#tour-product-selection', 
+                popover: { 
+                    title: 'Paso 1: Selección', 
+                    description: 'Primero, busca y selecciona el producto que deseas mover. Puedes escribir el nombre para encontrarlo rápidamente.' 
+                } 
+            },
+            { 
+                element: '#tour-locations-panel', 
+                popover: { 
+                    title: 'Paso 2: Origen y Destino', 
+                    description: 'Define desde DÓNDE sale la mercancía y hacia DÓNDE va. El sistema te mostrará automáticamente cuánto stock hay disponible en el origen seleccionado.' 
+                } 
+            },
+            { 
+                element: '#tour-quantity-notes', 
+                popover: { 
+                    title: 'Paso 3: Cantidad', 
+                    description: 'Ingresa cuántas unidades vas a mover. El sistema no te permitirá mover más de lo que hay disponible. También puedes agregar una nota de referencia.' 
+                } 
+            },
+            { 
+                element: '#tour-confirm-btn', 
+                popover: { 
+                    title: 'Confirmación', 
+                    description: 'Finalmente, haz clic aquí para procesar el movimiento. El inventario se actualizará al instante en ambas ubicaciones.' 
+                } 
+            }
+        ],
+        onDestroyStarted: () => {
+            markTourAsCompleted();
+            tourDriver.destroy();
+            disableBlocking(); // DESACTIVAR BLOQUEO
+        }
+    });
+
+    tourDriver.drive();
+};
+
+const markTourAsCompleted = async () => {
+    try {
+        await axios.post(route('tutorials.complete'), { module_name: 'stock_transfers' });
+    } catch (error) {
+        console.error('No se pudo guardar el progreso del tutorial', error);
+    }
+};
+
+onMounted(async () => {
+    try {
+        // OPTIMIZACIÓN: Verificamos silenciosamente.
+        const response = await axios.get(route('tutorials.check', 'stock_transfers'));
+        
+        if (!response.data.completed) {
+            // Solo si NO está completado, activamos el loading y preparamos el tour
+            isLoadingTour.value = true;
+            setTimeout(() => {
+                isLoadingTour.value = false;
+                startTour();
+            }, 800);
+        }
+        // Si ya está completado, no hacemos NADA (isLoadingTour sigue en false)
+    } catch (error) {
+        console.error('Error verificando tutorial', error);
+        isLoadingTour.value = false;
+    }
+});
+
+// Limpieza de eventos por si el componente se desmonta abruptamente
+onBeforeUnmount(() => {
+    disableBlocking();
+});
 </script>
 
 <template>
     <AppLayout title="Traspasos de Inventario">
-        <div class="max-w-4xl mx-auto py-8 px-4">
+        
+        <!-- Overlay de Carga (Spinner) - Solo se muestra si se va a lanzar el tour -->
+        <div v-if="isLoadingTour" class="fixed inset-0 z-[9999] bg-white/90 backdrop-blur-sm flex flex-col items-center justify-center">
+            <ProgressSpinner strokeWidth="4" animationDuration=".5s" />
+            <p class="mt-4 text-gray-500 font-medium animate-pulse">Preparando sistema...</p>
+        </div>
 
-            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+        <!-- CAPA TRANSPARENTE DE BLOQUEO DE INTERACCIÓN -->
+        <div v-if="isTourActive" class="fixed inset-0 z-[60] bg-transparent cursor-default"></div>
+
+        <div class="max-w-4xl mx-auto py-8 px-4 transition-opacity duration-300"
+             :class="{ '!pointer-events-none select-none': isTourActive }">
+
+            <!-- ID AGREGADO PARA EL TOUR -->
+            <div id="tour-header-title" class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
                 <div class="flex items-center gap-3 mb-6">
                     <div class="bg-indigo-100 p-3 rounded-2xl text-indigo-600">
                         <i class="pi pi-arrows-h text-2xl"></i>
@@ -88,7 +238,8 @@ const submit = () => {
                 <div class="p-8 grid gap-8">
 
                     <!-- 1. Selección de Producto -->
-                    <div class="flex flex-col gap-2">
+                    <!-- ID AGREGADO PARA EL TOUR -->
+                    <div id="tour-product-selection" class="flex flex-col gap-2">
                         <label class="font-bold text-gray-700">1. ¿Qué producto vas a mover?</label>
                         <Select v-model="form.product_id" :options="products" optionLabel="name" optionValue="id" filter
                             placeholder="Buscar producto..." class="w-full">
@@ -107,7 +258,8 @@ const submit = () => {
                     </div>
 
                     <!-- 2. Origen y Destino (Visual) -->
-                    <div class="bg-gray-50 rounded-2xl p-6 border border-gray-100 relative">
+                    <!-- ID AGREGADO PARA EL TOUR -->
+                    <div id="tour-locations-panel" class="bg-gray-50 rounded-2xl p-6 border border-gray-100 relative">
                         <!-- Línea conectora visual en Desktop -->
                         <div class="hidden md:block absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-0">
                             <i class="pi pi-arrow-right text-4xl text-gray-300"></i>
@@ -150,7 +302,8 @@ const submit = () => {
                     </div>
 
                     <!-- 3. Cantidad y Notas -->
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <!-- ID AGREGADO PARA EL TOUR -->
+                    <div id="tour-quantity-notes" class="grid grid-cols-1 md:grid-cols-3 gap-6">
                         <div class="md:col-span-1 flex flex-col gap-2">
                             <label class="font-bold text-gray-700">Cantidad</label>
                             <InputNumber v-model="form.quantity" showButtons buttonLayout="horizontal" :min="1"
@@ -178,9 +331,12 @@ const submit = () => {
                 </div>
 
                 <div class="bg-gray-50 p-6 flex justify-end">
-                    <Button label="Confirmar Traspaso" icon="pi pi-check" @click="submit" :loading="form.processing"
-                        :disabled="!form.product_id || !form.from_location_id || !form.to_location_id || !form.quantity"
-                        class="!bg-indigo-600 !border-indigo-600 hover:!bg-indigo-700 !font-bold !rounded-xl" />
+                    <!-- ID AGREGADO PARA EL TOUR -->
+                    <div id="tour-confirm-btn">
+                        <Button label="Confirmar Traspaso" icon="pi pi-check" @click="submit" :loading="form.processing"
+                            :disabled="!form.product_id || !form.from_location_id || !form.to_location_id || !form.quantity"
+                            class="!bg-indigo-600 !border-indigo-600 hover:!bg-indigo-700 !font-bold !rounded-xl" />
+                    </div>
                 </div>
             </div>
         </div>

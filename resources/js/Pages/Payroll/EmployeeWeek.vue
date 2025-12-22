@@ -1,9 +1,15 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
 import { router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import dayjs from 'dayjs';
 import 'dayjs/locale/es-mx';
+import axios from 'axios';
+import ProgressSpinner from 'primevue/progressspinner';
+
+// --- IMPORTAR DRIVER.JS PARA EL TOUR ---
+import { driver } from "driver.js";
+import "driver.js/dist/driver.css";
 
 dayjs.locale('es-mx');
 
@@ -14,6 +20,11 @@ const props = defineProps({
     employee: Object,
     payrollData: Object,
 });
+
+// --- ESTADOS PARA EL TOUR ---
+// Iniciamos en false para no molestar a usuarios expertos
+const isLoadingTour = ref(false);
+const isTourActive = ref(false);
 
 const formatCurrency = (value) => {
     return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(value || 0);
@@ -33,7 +44,6 @@ const dateRangeLabel = computed(() => {
 });
 
 // --- Detección de Periodo Futuro ---
-// Si la fecha de inicio de la semana es posterior al día de hoy, consideramos que es un periodo futuro/no abierto.
 const isFuturePeriod = computed(() => {
     return dayjs(props.startDate).isAfter(dayjs(), 'day');
 });
@@ -48,7 +58,6 @@ const nextWeek = () => {
     router.visit(route('payroll.week', next));
 };
 
-// Navegar a la semana actual (Forzamos el inicio en Domingo para coincidir con Carbon::SUNDAY del backend)
 const goToCurrentWeek = () => {
     const currentSunday = dayjs().day(0).format('YYYY-MM-DD');
     router.visit(route('payroll.week', currentSunday));
@@ -99,14 +108,143 @@ const getHolidayRestAmount = () => {
     if (totals.value.salary_holidays_rest !== undefined) return totals.value.salary_holidays_rest;
     return bd.value.holidays_rest * props.employee.base_salary;
 };
+
+// --- LÓGICA DEL TUTORIAL (ONBOARDING) ---
+
+// Bloqueo de Interacción Robusto
+const blockInteraction = (e) => {
+    if (!isTourActive.value) return;
+    if (e.target.closest && e.target.closest('.driver-popover')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+};
+
+const enableBlocking = () => {
+    isTourActive.value = true;
+    window.addEventListener('click', blockInteraction, true);
+    window.addEventListener('mousedown', blockInteraction, true);
+    window.addEventListener('touchstart', blockInteraction, true);
+    window.addEventListener('keydown', blockInteraction, true);
+};
+
+const disableBlocking = () => {
+    isTourActive.value = false;
+    window.removeEventListener('click', blockInteraction, true);
+    window.removeEventListener('mousedown', blockInteraction, true);
+    window.removeEventListener('touchstart', blockInteraction, true);
+    window.removeEventListener('keydown', blockInteraction, true);
+};
+
+const startTour = () => {
+    enableBlocking();
+
+    const tourDriver = driver({
+        showProgress: true,
+        allowClose: false,
+        showButtons: ['next', 'previous'],
+        doneBtnText: '¡Entendido!',
+        nextBtnText: 'Siguiente',
+        prevBtnText: 'Anterior',
+        steps: [
+            { 
+                element: '#tour-week-header', 
+                popover: { 
+                    title: 'Tu Nómina Semanal', 
+                    description: 'Bienvenido a tu panel de nómina. Aquí puedes revisar a detalle cuánto has ganado en la semana y navegar entre periodos anteriores.',
+                    side: "bottom",
+                    align: 'start'
+                } 
+            },
+            { 
+                element: '#tour-financial-summary', 
+                popover: { 
+                    title: 'Resumen Total', 
+                    description: 'Esta tarjeta te muestra el monto NETO estimado a recibir (o ya pagado). Incluye tu sueldo base más todos los bonos y comisiones.',
+                } 
+            },
+            { 
+                element: '#tour-concepts-breakdown', 
+                popover: { 
+                    title: 'Desglose de Conceptos', 
+                    description: 'Aquí verás el detalle de tus ingresos: días trabajados, festivos, bonos y comisiones por ventas.',
+                } 
+            },
+            { 
+                element: '#tour-incidents-alert', 
+                popover: { 
+                    title: 'Alertas de Incidencias', 
+                    description: 'Si tienes faltas o retardos, aparecerán aquí. Recuerda que estas incidencias pueden afectar tus bonos semanales.',
+                } 
+            },
+            { 
+                element: '#tour-daily-detail', 
+                popover: { 
+                    title: 'Detalle Diario', 
+                    description: 'Revisa día por día tu registro de asistencia, horarios de entrada/salida y si el día cuenta como festivo o descanso.',
+                } 
+            }
+        ],
+        onDestroyStarted: () => {
+            markTourAsCompleted();
+            tourDriver.destroy();
+            disableBlocking();
+        }
+    });
+
+    tourDriver.drive();
+};
+
+const markTourAsCompleted = async () => {
+    try {
+        await axios.post(route('tutorials.complete'), { module_name: 'employee_payroll' });
+    } catch (error) {
+        console.error('No se pudo guardar el progreso del tutorial', error);
+    }
+};
+
+onMounted(async () => {
+    try {
+        // Verificar si es un periodo válido para mostrar datos y tutorial
+        if (!isFuturePeriod.value) {
+            const response = await axios.get(route('tutorials.check', 'employee_payroll'));
+            if (!response.data.completed) {
+                isLoadingTour.value = true;
+                setTimeout(() => {
+                    isLoadingTour.value = false;
+                    startTour();
+                }, 800);
+            }
+        }
+    } catch (error) {
+        console.error('Error verificando tutorial', error);
+        isLoadingTour.value = false;
+    }
+});
+
+onBeforeUnmount(() => {
+    disableBlocking();
+});
 </script>
 
 <template>
     <AppLayout title="Mi Nómina">
-        <div class="max-w-3xl mx-auto py-6 px-4 flex flex-col gap-6 pb-20">
+        
+        <!-- Overlay de Carga (Solo si inicia el tour) -->
+        <div v-if="isLoadingTour" class="fixed inset-0 z-[9999] bg-white/90 backdrop-blur-sm flex flex-col items-center justify-center">
+            <ProgressSpinner strokeWidth="4" animationDuration=".5s" />
+            <p class="mt-4 text-gray-500 font-medium animate-pulse">Preparando sistema...</p>
+        </div>
+
+        <!-- Capa de bloqueo -->
+        <div v-if="isTourActive" class="fixed inset-0 z-[60] bg-transparent cursor-default"></div>
+
+        <div class="max-w-3xl mx-auto py-6 px-4 flex flex-col gap-6 pb-20 transition-opacity duration-300"
+             :class="{ '!pointer-events-none select-none': isTourActive }">
             
             <!-- Header Navegación -->
-            <div class="bg-white rounded-2xl shadow-sm border border-surface-200 p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <!-- ID TOUR: Header -->
+            <div id="tour-week-header" class="bg-white rounded-2xl shadow-sm border border-surface-200 p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div>
                     <h2 class="text-xl font-bold text-surface-900">Mi semana</h2>
                     <p class="text-sm text-surface-500 capitalize">{{ dateRangeLabel }}</p>
@@ -141,7 +279,8 @@ const getHolidayRestAmount = () => {
             <!-- VISTA: CONTENIDO NORMAL (Si el periodo es actual o pasado) -->
             <div v-else class="flex flex-col gap-6 animate-fade-in">
                 <!-- Resumen Financiero -->
-                <div class="bg-gradient-to-r from-surface-900 to-surface-800 rounded-3xl p-6 text-white shadow-lg relative overflow-hidden">
+                <!-- ID TOUR: Resumen -->
+                <div id="tour-financial-summary" class="bg-gradient-to-r from-surface-900 to-surface-800 rounded-3xl p-6 text-white shadow-lg relative overflow-hidden">
                     <div class="absolute top-0 right-0 p-3 opacity-10"><i class="pi pi-wallet !text-8xl"></i></div>
                     <div class="relative z-10">
                         <div class="flex justify-between items-start">
@@ -161,7 +300,8 @@ const getHolidayRestAmount = () => {
                 </div>
 
                 <!-- DESGLOSE DE CONCEPTOS -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- ID TOUR: Desglose -->
+                <div id="tour-concepts-breakdown" class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     
                     <!-- Tarjeta 1: Percepciones Base -->
                     <div class="bg-white rounded-2xl shadow-sm border border-surface-200 p-5 space-y-4">
@@ -247,7 +387,8 @@ const getHolidayRestAmount = () => {
                 </div>
 
                 <!-- Incidencias Negativas -->
-                <div v-if="bd.absences > 0 || bd.lates > 0" class="bg-red-50 rounded-2xl border border-red-100 p-4 flex flex-wrap gap-4 text-sm text-red-800">
+                <!-- ID TOUR: Alertas -->
+                <div id="tour-incidents-alert" v-if="bd.absences > 0 || bd.lates > 0" class="bg-red-50 rounded-2xl border border-red-100 p-4 flex flex-wrap gap-4 text-sm text-red-800">
                     <div v-if="bd.absences > 0" class="flex items-center gap-2 font-bold">
                         <i class="pi pi-times-circle"></i> {{ bd.absences }} Faltas
                     </div>
@@ -258,57 +399,60 @@ const getHolidayRestAmount = () => {
                 </div>
 
                 <!-- Calendario -->
-                <h3 class="text-lg font-bold text-surface-900 mt-2">Detalle diario</h3>
-                <div class="grid grid-cols-1 gap-3">
-                    <div v-for="day in days" :key="day.date" 
-                        class="rounded-xl border p-4 flex items-center justify-between transition-colors relative overflow-hidden"
-                        :class="getDayClass(day)"
-                    >
-                        <div v-if="day.holiday_data && day.check_in"
-                            class="absolute top-0 right-0 bg-yellow-400 text-yellow-900 text-[10px] font-black px-2 py-0.5 rounded-bl-lg shadow-sm z-10">
-                            {{ day.holiday_data.multiplier || '3.0' }}x PAGO
-                        </div>
+                <!-- ID TOUR: Calendario -->
+                <div id="tour-daily-detail">
+                    <h3 class="text-lg font-bold text-surface-900 mt-2">Detalle diario</h3>
+                    <div class="grid grid-cols-1 gap-3">
+                        <div v-for="day in days" :key="day.date" 
+                            class="rounded-xl border p-4 flex items-center justify-between transition-colors relative overflow-hidden"
+                            :class="getDayClass(day)"
+                        >
+                            <div v-if="day.holiday_data && day.check_in"
+                                class="absolute top-0 right-0 bg-yellow-400 text-yellow-900 text-[10px] font-black px-2 py-0.5 rounded-bl-lg shadow-sm z-10">
+                                {{ day.holiday_data.multiplier || '3.0' }}x PAGO
+                            </div>
 
-                        <div class="flex items-center gap-4">
-                            <div class="text-center min-w-[50px]">
-                                <span class="block text-xs uppercase font-bold opacity-60">{{ day.day_name.substring(0,3) }}</span>
-                                <span class="block text-xl font-black">{{ dayjs(day.date).format('DD') }}</span>
-                            </div>
-                            <div class="border-l border-black/10 pl-4">
-                                <div class="font-bold text-sm">
-                                    <span v-if="day.holiday_data" :class="day.check_in ? 'text-yellow-800' : 'text-emerald-700'">
-                                        <i class="pi pi-star-fill text-xs mr-1"></i>{{ day.holiday_data.name }}
-                                    </span>
-                                    <span v-else>{{ day.incident_label }}</span>
+                            <div class="flex items-center gap-4">
+                                <div class="text-center min-w-[50px]">
+                                    <span class="block text-xs uppercase font-bold opacity-60">{{ day.day_name.substring(0,3) }}</span>
+                                    <span class="block text-xl font-black">{{ dayjs(day.date).format('DD') }}</span>
                                 </div>
-                                <!-- Información de Turno y Estado -->
-                                <div class="flex items-center gap-2 mt-1">
-                                    <div v-if="day.schedule_shift" class="flex items-center gap-1.5">
-                                        <div class="w-2 h-2 rounded-full" :style="{ backgroundColor: day.shift_color || '#ccc' }"></div>
-                                        <span class="text-xs opacity-70">{{ day.schedule_shift }}</span>
+                                <div class="border-l border-black/10 pl-4">
+                                    <div class="font-bold text-sm">
+                                        <span v-if="day.holiday_data" :class="day.check_in ? 'text-yellow-800' : 'text-emerald-700'">
+                                            <i class="pi pi-star-fill text-xs mr-1"></i>{{ day.holiday_data.name }}
+                                        </span>
+                                        <span v-else>{{ day.incident_label }}</span>
                                     </div>
-                                    
-                                    <div v-if="day.is_late && day.late_ignored" class="flex items-center gap-1 bg-green-100 px-1.5 py-0.5 rounded text-[10px] text-green-700 font-bold border border-green-200">
-                                        <i class="pi pi-check-circle text-[10px]"></i> Justificado
-                                    </div>
-                                    
-                                    <div v-else-if="day.is_late" class="flex items-center gap-1 bg-red-100 px-1.5 py-0.5 rounded text-[10px] text-red-700 font-bold border border-red-200">
-                                        <i class="pi pi-clock text-[10px]"></i> Retardo
+                                    <!-- Información de Turno y Estado -->
+                                    <div class="flex items-center gap-2 mt-1">
+                                        <div v-if="day.schedule_shift" class="flex items-center gap-1.5">
+                                            <div class="w-2 h-2 rounded-full" :style="{ backgroundColor: day.shift_color || '#ccc' }"></div>
+                                            <span class="text-xs opacity-70">{{ day.schedule_shift }}</span>
+                                        </div>
+                                        
+                                        <div v-if="day.is_late && day.late_ignored" class="flex items-center gap-1 bg-green-100 px-1.5 py-0.5 rounded text-[10px] text-green-700 font-bold border border-green-200">
+                                            <i class="pi pi-check-circle text-[10px]"></i> Justificado
+                                        </div>
+                                        
+                                        <div v-else-if="day.is_late" class="flex items-center gap-1 bg-red-100 px-1.5 py-0.5 rounded text-[10px] text-red-700 font-bold border border-red-200">
+                                            <i class="pi pi-clock text-[10px]"></i> Retardo
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
 
-                        <div class="text-right pr-2" v-if="shouldShowTimes(day)">
-                            <div class="flex flex-col text-gray-600">
-                                <span class="text-xs font-bold mb-0.5">{{ formatTime12h(day.check_in) }}</span>
-                                <span class="text-xs font-medium opacity-70">{{ formatTime12h(day.check_out) }}</span>
+                            <div class="text-right pr-2" v-if="shouldShowTimes(day)">
+                                <div class="flex flex-col text-gray-600">
+                                    <span class="text-xs font-bold mb-0.5">{{ formatTime12h(day.check_in) }}</span>
+                                    <span class="text-xs font-medium opacity-70">{{ formatTime12h(day.check_out) }}</span>
+                                </div>
                             </div>
-                        </div>
-                        <div v-else class="text-right pr-4">
-                            <i v-if="day.is_rest_day && !day.incident_type" class="pi pi-home text-gray-400"></i>
-                            <i v-else-if="day.incident_type === 'vacaciones'" class="pi pi-sun text-blue-400"></i>
-                            <i v-else class="pi pi-minus text-xs opacity-20"></i>
+                            <div v-else class="text-right pr-4">
+                                <i v-if="day.is_rest_day && !day.incident_type" class="pi pi-home text-gray-400"></i>
+                                <i v-else-if="day.incident_type === 'vacaciones'" class="pi pi-sun text-blue-400"></i>
+                                <i v-else class="pi pi-minus text-xs opacity-20"></i>
+                            </div>
                         </div>
                     </div>
                 </div>

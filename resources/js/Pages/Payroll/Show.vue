@@ -3,6 +3,7 @@ import { ref, computed } from 'vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { useToast } from 'primevue/usetoast';
+import Image from 'primevue/image'; // --- NUEVO IMPORT ---
 import dayjs from 'dayjs';
 import 'dayjs/locale/es-mx'; // Importar locale español
 
@@ -90,6 +91,7 @@ const calculateTotalHours = (days) => {
 const editDialog = ref(false);
 const selectedEmployee = ref(null);
 const selectedDay = ref(null);
+const currentPhotos = ref({ checkIn: null, checkOut: null }); // --- NUEVO ESTADO FOTOS ---
 
 const form = useForm({
     employee_id: null,
@@ -120,6 +122,10 @@ const incidentOptions = [
 const openEdit = (employeeData, dayData) => {
     selectedEmployee.value = employeeData.employee;
     selectedDay.value = dayData;
+
+    // --- CARGAR FOTOS ---
+    currentPhotos.value.checkIn = dayData.check_in_photo;
+    currentPhotos.value.checkOut = dayData.check_out_photo;
 
     form.employee_id = employeeData.employee.id;
     form.date = dayData.date;
@@ -225,8 +231,9 @@ const getCellClass = (day) => {
 
                 <!-- Acciones Extra -->
                 <div class="flex gap-2 w-full md:w-auto justify-end">
-                     <a :href="route('payroll.receipts', startDate)" target="_blank" rel="noopener noreferrer">
-                        <Button label="Recibos" icon="pi pi-print" severity="secondary" outlined rounded v-tooltip.top="'Imprimir recibos de esta semana'" />
+                    <a :href="route('payroll.receipts', startDate)" target="_blank" rel="noopener noreferrer">
+                        <Button label="Recibos" icon="pi pi-print" severity="secondary" outlined rounded
+                            v-tooltip.top="'Imprimir recibos de esta semana'" />
                     </a>
                     <Link :href="route('payroll.settlement', startDate)">
                         <Button label="Pre-Nómina" icon="pi pi-calculator"
@@ -285,7 +292,7 @@ const getCellClass = (day) => {
                                         </div>
                                         <div class="min-w-0">
                                             <div class="font-bold text-surface-900 truncate max-w-[150px] cursor-pointer hover:text-primary transition-colors duration-200 ease-in-out"
-                                            @click="$inertia.visit(route('employees.show', row.employee.id))"
+                                                @click="$inertia.visit(route('employees.show', row.employee.id))"
                                                 :title="row.employee.full_name">{{
                                                     row.employee.full_name }}</div>
                                             <div class="text-xs text-surface-500 ">ID: {{ row.employee.user.id }}</div>
@@ -438,7 +445,7 @@ const getCellClass = (day) => {
                             </div>
                             <div>
                                 <div class="font-bold text-surface-900 text-sm leading-tight">{{ row.employee.full_name
-                                }}</div>
+                                    }}</div>
                                 <div class="text-xs text-surface-500">ID: {{ row.employee.id }}</div>
                             </div>
                         </div>
@@ -543,7 +550,9 @@ const getCellClass = (day) => {
 
                 <!-- Header del Modal -->
                 <div class="flex items-center gap-3 pb-3 border-b border-surface-100">
-                    <div
+                    <img v-if="selectedEmployee.profile_photo_url" :src="selectedEmployee.profile_photo_url"
+                        class="w-10 h-10 rounded-full object-cover border border-surface-200">
+                    <div v-else
                         class="w-12 h-12 rounded-full bg-orange-50 flex items-center justify-center text-orange-600 font-bold text-lg">
                         {{ selectedEmployee.first_name[0] }}
                     </div>
@@ -557,6 +566,25 @@ const getCellClass = (day) => {
                             class="mt-1 inline-flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
                             <i class="pi pi-calendar-plus"></i> {{ getHolidayInfo(selectedDay.date).name }}
                         </div>
+                    </div>
+                </div>
+
+                <!-- === EVIDENCIA FOTOGRÁFICA (NUEVO) === -->
+                <div v-if="currentPhotos.checkIn || currentPhotos.checkOut"
+                    class="flex gap-6 justify-center bg-surface-50 p-3 rounded-xl border border-surface-200">
+
+                    <div v-if="currentPhotos.checkIn" class="flex flex-col items-center gap-1 group">
+                        <span class="text-[10px] uppercase font-bold text-surface-500">Entrada</span>
+                        <Image :src="currentPhotos.checkIn" alt="Entrada" width="80" preview
+                            class="rounded-lg overflow-hidden shadow-sm border border-surface-200 transition-transform hover:scale-105"
+                            :pt="{ img: { class: 'object-cover w-20 h-20' } }" />
+                    </div>
+
+                    <div v-if="currentPhotos.checkOut" class="flex flex-col items-center gap-1 group">
+                        <span class="text-[10px] uppercase font-bold text-surface-500">Salida</span>
+                        <Image :src="currentPhotos.checkOut" alt="Salida" width="80" preview
+                            class="rounded-lg overflow-hidden shadow-sm border border-surface-200 transition-transform hover:scale-105"
+                            :pt="{ img: { class: 'object-cover w-20 h-20' } }" />
                     </div>
                 </div>
 

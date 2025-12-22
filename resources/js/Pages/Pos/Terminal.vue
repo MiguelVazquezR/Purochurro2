@@ -1,8 +1,14 @@
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useForm, Link } from '@inertiajs/vue3'; 
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { useToast } from "primevue/usetoast";
+import axios from 'axios';
+import ProgressSpinner from 'primevue/progressspinner'; 
+
+// --- IMPORTAR DRIVER.JS PARA EL TOUR ---
+import { driver } from "driver.js";
+import "driver.js/dist/driver.css";
 
 const props = defineProps({
     operation: Object,
@@ -18,36 +24,35 @@ const selectedLocation = ref(props.locations[0]?.id);
 const showPaymentModal = ref(false);
 const processingPayment = ref(false);
 const keypadInput = ref('0');
-const isEmployeeSale = ref(false); // Nuevo estado para precio empleado
+const isEmployeeSale = ref(false);
+
+// Estado para controlar la carga inicial y la ejecución del tour
+const isLoadingTour = ref(false); 
+const isTourActive = ref(false); 
 
 const paymentForm = useForm({
     location_id: null,
     payment_method: 'cash',
     items: [],
     cash_received: 0,
-    is_employee_sale: false, // Campo para enviar la bandera al backend
+    is_employee_sale: false, 
 });
 
 const filteredProducts = computed(() => {
     return props.products;
 });
 
-// Helper para obtener el precio correcto según el modo
 const getPrice = (product) => {
     return isEmployeeSale.value ? parseFloat(product.employee_price) : parseFloat(product.price);
 };
 
-// Helper para obtener stock de la ubicación seleccionada
 const getProductStock = (product) => {
     if (!product.track_inventory) return Infinity;
-    // Accedemos al objeto stocks enviado por el controlador
     return product.stocks[selectedLocation.value] || 0;
 };
 
-// Observador: Si cambia el modo empleado, actualizar precios del carrito
 watch(isEmployeeSale, (newValue) => {
     cart.value.forEach(item => {
-        // Buscamos el producto original para obtener su precio
         const originalProduct = props.products.find(p => p.id === item.product_id);
         if (originalProduct) {
             item.price = getPrice(originalProduct);
@@ -65,7 +70,6 @@ const addToCart = (product) => {
     const stock = getProductStock(product);
     const item = cart.value.find(i => i.product_id === product.id);
     
-    // Validación simple de stock al agregar
     const currentQty = item ? item.quantity : 0;
     if (product.track_inventory && currentQty + 1 > stock) {
         toast.add({ severity: 'warn', summary: 'Sin stock', detail: 'No hay más unidades en esta ubicación.', life: 3000 });
@@ -78,7 +82,7 @@ const addToCart = (product) => {
         cart.value.push({
             product_id: product.id,
             name: product.name,
-            price: getPrice(product), // Usamos el precio dinámico
+            price: getPrice(product), 
             image: product.image_url,
             quantity: 1
         });
@@ -92,7 +96,6 @@ const updateQty = (index, delta) => {
     
     const newVal = item.quantity + delta;
     
-    // Validar stock al incrementar
     if (delta > 0 && product.track_inventory && newVal > stock) {
         toast.add({ severity: 'warn', summary: 'Sin stock', detail: 'Límite de existencias alcanzado.', life: 3000 });
         return;
@@ -132,7 +135,6 @@ const processSale = () => {
     processingPayment.value = true;
     paymentForm.location_id = selectedLocation.value;
     
-    // Asignamos el valor de la bandera al formulario antes de enviarlo
     paymentForm.is_employee_sale = isEmployeeSale.value;
     
     paymentForm.items = cart.value.map(i => ({ product_id: i.product_id, quantity: i.quantity, price: i.price }));
@@ -144,8 +146,6 @@ const processSale = () => {
             showPaymentModal.value = false;
             clearCart();
             processingPayment.value = false;
-            // Opcional: Resetear modo empleado al terminar
-            // isEmployeeSale.value = false; 
         },
         onError: (errors) => {
             const errorMsg = errors.items || errors[0] || 'No se procesó la venta.';
@@ -156,14 +156,156 @@ const processSale = () => {
 };
 
 const formatCurrency = (val) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(val);
+
+// --- BLOQUEO DE INTERACCIÓN ROBUSTO ---
+const blockInteraction = (e) => {
+    // Si el tour no está activo, no hacemos nada
+    if (!isTourActive.value) return;
+
+    // Permitimos clics DENTRO de la ventana del tutorial (driver-popover)
+    // Esto asegura que los botones "Siguiente", "Anterior", "Entendido" sigan funcionando
+    if (e.target.closest && e.target.closest('.driver-popover')) {
+        return;
+    }
+
+    // Bloqueamos cualquier otra interacción
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+};
+
+const enableBlocking = () => {
+    isTourActive.value = true;
+    // Agregamos listeners en fase de CAPTURA (true) para interceptar antes que nadie
+    window.addEventListener('click', blockInteraction, true);
+    window.addEventListener('mousedown', blockInteraction, true);
+    window.addEventListener('touchstart', blockInteraction, true);
+    window.addEventListener('keydown', blockInteraction, true);
+};
+
+const disableBlocking = () => {
+    isTourActive.value = false;
+    window.removeEventListener('click', blockInteraction, true);
+    window.removeEventListener('mousedown', blockInteraction, true);
+    window.removeEventListener('touchstart', blockInteraction, true);
+    window.removeEventListener('keydown', blockInteraction, true);
+};
+
+// --- CONFIGURACIÓN DEL TOUR (ONBOARDING) ---
+const startTour = () => {
+    enableBlocking(); // ACTIVAR BLOQUEO
+
+    const tourDriver = driver({
+        showProgress: true,
+        allowClose: false,
+        showButtons: ['next', 'previous'],
+        doneBtnText: '¡Entendido!', 
+        nextBtnText: 'Siguiente',
+        prevBtnText: 'Anterior',
+        steps: [
+            { 
+                element: '#tour-full-layout', 
+                popover: { 
+                    title: 'Terminal de Venta', 
+                    description: 'Bienvenido al punto de venta. Aquí podrás gestionar el catálogo de productos y procesar las órdenes de compra.',
+                    side: "center",
+                    align: 'center'
+                } 
+            },
+            { 
+                element: '#tour-transfers-btn', 
+                popover: { 
+                    title: '1. Traspasos de Cocina', 
+                    description: 'Importante: Si te quedas sin stock en el carrito, no podrás registrar más ventas de ese producto. Usa este botón para solicitar un traspaso de cocina y reabastecer tu caja.' 
+                } 
+            },
+            { 
+                element: '#tour-employee-toggle', 
+                popover: { 
+                    title: '2. Precios de Empleado', 
+                    description: 'Cuando un colaborador quiera consumir, activa este interruptor. Los precios se ajustarán automáticamente y la venta quedará marcada para revisión administrativa.' 
+                } 
+            },
+            { 
+                element: '#tour-products-grid', 
+                popover: { 
+                    title: 'Selección de Productos', 
+                    description: 'Toca los productos para agregarlos a la orden actual. Puedes ver las existencias disponibles en la esquina de cada tarjeta.' 
+                } 
+            },
+            { 
+                element: '#tour-checkout-section', 
+                popover: { 
+                    title: '3. Cobrar y Finalizar', 
+                    description: 'Aquí verás el resumen de la orden. Al dar clic en "Cobrar", se abrirá la ventana para ingresar el efectivo. ¡Recuerda contar bien el cambio!' 
+                } 
+            }
+        ],
+        onDestroyStarted: () => {
+            markTourAsCompleted();
+            tourDriver.destroy();
+            disableBlocking(); // DESACTIVAR BLOQUEO
+        }
+    });
+
+    tourDriver.drive();
+};
+
+const markTourAsCompleted = async () => {
+    try {
+        await axios.post(route('tutorials.complete'), { module_name: 'pos_terminal' });
+    } catch (error) {
+        console.error('No se pudo guardar el progreso del tutorial', error);
+    }
+};
+
+onMounted(async () => {
+    try {
+        const response = await axios.get(route('tutorials.check', 'pos_terminal'));
+        
+        if (!response.data.completed) {
+            // Solo si NO está completado, activamos el loading y preparamos el tour
+            isLoadingTour.value = true;
+            setTimeout(() => {
+                isLoadingTour.value = false;
+                startTour();
+            }, 800);
+        } else {
+            isLoadingTour.value = false;
+        }
+    } catch (error) {
+        console.error('Error verificando tutorial', error);
+        isLoadingTour.value = false;
+    }
+});
+
+// Limpieza de eventos por si el componente se desmonta abruptamente
+onBeforeUnmount(() => {
+    disableBlocking();
+});
 </script>
 
 <template>
     <AppLayout title="Terminal PV">
-        <div class="h-[calc(100vh-6.9rem)] p-3 gap-x-3 grid grid-cols-1 md:grid-cols-12 overflow-hidden font-sans">
+        
+        <!-- Overlay de Carga (Spinner) -->
+        <div v-if="isLoadingTour" class="fixed inset-0 z-[9999] bg-white/90 backdrop-blur-sm flex flex-col items-center justify-center">
+            <ProgressSpinner strokeWidth="4" animationDuration=".5s" />
+            <p class="mt-4 text-gray-500 font-medium animate-pulse">Preparando sistema...</p>
+        </div>
+
+        <!-- Capa visual (opcional, para cambiar el cursor a default) -->
+        <div v-if="isTourActive" class="fixed inset-0 z-[60] bg-transparent cursor-default"></div>
+
+        <!-- Contenedor Principal -->
+        <div 
+            id="tour-full-layout" 
+            class="h-[calc(100vh-6.9rem)] p-3 gap-x-3 grid grid-cols-1 md:grid-cols-12 overflow-hidden font-sans transition-opacity duration-300"
+            :class="{ '!pointer-events-none select-none': isTourActive }"
+        >
             
             <!-- IZQUIERDA: Catálogo (7 columnas) -->
-            <div class="md:col-span-7 flex flex-col bg-white border border-surface-200 rounded-[2rem] shadow-md overflow-hidden h-full relative">
+            <div id="tour-products-section" class="md:col-span-7 flex flex-col bg-white border border-surface-200 rounded-[2rem] shadow-md overflow-hidden h-full relative">
                 <div class="px-6 py-5 border-b border-surface-100 flex justify-between items-center bg-white/80 backdrop-blur-md sticky top-0 z-10">
                     
                     <div class="flex items-center gap-4">
@@ -174,12 +316,9 @@ const formatCurrency = (val) => new Intl.NumberFormat('es-MX', { style: 'currenc
 
                         <!-- Accesos Rápidos Inventario -->
                         <div class="flex gap-1 ml-2 border-l border-gray-200 pl-3">
-                            <Link :href="route('stock-transfers.index')" v-tooltip.bottom="'Traspasos'">
+                            <Link id="tour-transfers-btn" :href="route('stock-transfers.index')" v-tooltip.bottom="'Traspasos'">
                                 <Button icon="pi pi-arrows-h" text rounded severity="help" class="!w-10 !h-10 hover:bg-indigo-50" />
                             </Link>
-                            <!-- <Link :href="route('stock-adjustments.index')" v-tooltip.bottom="'Entradas/Salidas/Mermas'">
-                                <Button icon="pi pi-sliders-h" text rounded severity="warn" class="!w-10 !h-10 hover:bg-orange-50" />
-                            </Link> -->
                         </div>
                     </div>
 
@@ -189,7 +328,7 @@ const formatCurrency = (val) => new Intl.NumberFormat('es-MX', { style: 'currenc
                 </div>
 
                 <div class="flex-1 overflow-y-auto p-5 scroll-smooth">
-                    <div class="grid grid-cols-2 sm:grid-cols-2 xl:grid-cols-3 gap-4 pb-24">
+                    <div id="tour-products-grid" class="grid grid-cols-2 sm:grid-cols-2 xl:grid-cols-3 gap-4 pb-24">
                         <button 
                             v-for="product in filteredProducts" 
                             :key="product.id"
@@ -201,7 +340,6 @@ const formatCurrency = (val) => new Intl.NumberFormat('es-MX', { style: 'currenc
                                 <img v-if="product.image_url" :src="product.image_url" class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
                                 <div v-else class="w-full h-full flex items-center justify-center text-gray-300"><i class="pi pi-image !text-3xl opacity-50"></i></div>
                                 
-                                <!-- Precio (Cambia de color si es empleado) -->
                                 <span 
                                     class="absolute bottom-2 right-2 backdrop-blur px-2.5 py-1 rounded-lg text-xs font-black shadow-sm border"
                                     :class="isEmployeeSale ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-white/95 text-gray-800 border-gray-100'"
@@ -215,7 +353,6 @@ const formatCurrency = (val) => new Intl.NumberFormat('es-MX', { style: 'currenc
                                     {{ product.name }}
                                 </p>
                                 <div class="flex items-center justify-between mt-1">
-                                    <!-- Stock Dinámico según Ubicación Seleccionada -->
                                     <Tag 
                                         v-if="product.track_inventory" 
                                         :severity="getProductStock(product) > 0 ? 'success' : 'danger'" 
@@ -244,8 +381,7 @@ const formatCurrency = (val) => new Intl.NumberFormat('es-MX', { style: 'currenc
                     </h3>
 
                     <div class="flex items-center gap-2">
-                        <!-- Toggle Precio Empleado -->
-                        <div class="flex items-center gap-2 mr-2" v-tooltip.bottom="'Activar precio empleado'">
+                        <div id="tour-employee-toggle" class="flex items-center gap-2 mr-2" v-tooltip.bottom="'Activar precio empleado'">
                             <span class="text-xs font-bold text-gray-400 uppercase tracking-wider hidden xl:inline-block">Emp.</span>
                             <ToggleButton 
                                 v-model="isEmployeeSale" 
@@ -282,7 +418,6 @@ const formatCurrency = (val) => new Intl.NumberFormat('es-MX', { style: 'currenc
                         </div>
                     </div>
 
-                    <!-- Item Card Optimizado -->
                     <div 
                         v-for="(item, idx) in cart" 
                         :key="idx" 
@@ -320,7 +455,7 @@ const formatCurrency = (val) => new Intl.NumberFormat('es-MX', { style: 'currenc
                     </div>
                 </div>
 
-                <div class="p-5 bg-gray-50 border-t border-surface-200 z-20">
+                <div id="tour-checkout-section" class="p-5 bg-gray-50 border-t border-surface-200 z-20">
                     <div class="flex justify-between items-end mb-4">
                         <div class="text-gray-500 text-sm font-medium flex flex-col">
                             <span>Total a pagar</span>

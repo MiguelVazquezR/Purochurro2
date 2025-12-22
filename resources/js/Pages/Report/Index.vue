@@ -1,19 +1,25 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue';
+import { ref, onMounted, watch, onBeforeUnmount } from 'vue';
 import { router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Chart from 'chart.js/auto';
+import axios from 'axios';
+import ProgressSpinner from 'primevue/progressspinner';
 
-// Definimos las props, incluyendo las nuevas para los montos anteriores
+// --- IMPORTAR DRIVER.JS PARA EL TOUR ---
+import { driver } from "driver.js";
+import "driver.js/dist/driver.css";
+
+// Definimos las props
 const props = defineProps({
     filter: String,
     currentSales: Number,
     currentExpenses: Number,
     currentProfit: Number,
     averageTicket: Number,
-    prevSales: Number,      // Nuevo prop
-    prevExpenses: Number,   // Nuevo prop
-    prevProfit: Number,     // Nuevo prop
+    prevSales: Number,      
+    prevExpenses: Number,   
+    prevProfit: Number,     
     variations: Object,
     topProducts: Array,
     chartData: Object
@@ -22,6 +28,10 @@ const props = defineProps({
 // --- Referencias para la Gráfica ---
 const chartRef = ref(null);
 let chartInstance = null;
+
+// --- ESTADOS PARA EL TOUR ---
+const isLoadingTour = ref(false);
+const isTourActive = ref(false);
 
 // --- Helpers de Formato ---
 const formatCurrency = (value) => {
@@ -67,9 +77,8 @@ const initChart = () => {
 
     const ctx = chartRef.value.getContext('2d');
     
-    // Crear degradado estilo Mac/iOS
     const gradient = ctx.createLinearGradient(0, 0, 0, 400);
-    gradient.addColorStop(0, 'rgba(99, 102, 241, 0.5)'); // Indigo 500
+    gradient.addColorStop(0, 'rgba(99, 102, 241, 0.5)'); 
     gradient.addColorStop(1, 'rgba(99, 102, 241, 0.0)');
 
     chartInstance = new Chart(ctx, {
@@ -79,7 +88,7 @@ const initChart = () => {
             datasets: [{
                 label: 'Ventas',
                 data: props.chartData.values,
-                borderColor: '#6366f1', // Indigo 500
+                borderColor: '#6366f1', 
                 backgroundColor: gradient,
                 borderWidth: 3,
                 pointBackgroundColor: '#ffffff',
@@ -87,7 +96,7 @@ const initChart = () => {
                 pointRadius: 4,
                 pointHoverRadius: 6,
                 fill: true,
-                tension: 0.4 // Curva suave
+                tension: 0.4 
             }]
         },
         options: {
@@ -116,7 +125,7 @@ const initChart = () => {
                     },
                     ticks: {
                         callback: function(value) {
-                            return '$' + value; // Simplificado para eje Y
+                            return '$' + value; 
                         },
                         font: { size: 10 }
                     }
@@ -130,46 +139,167 @@ const initChart = () => {
     });
 };
 
-// Lifecycle Hooks
-onMounted(() => {
-    initChart();
-});
-
-// Observar cambios en los datos (por si se cambia el filtro) para redibujar
-watch(() => props.chartData, () => {
-    initChart();
-});
-
-// --- Lógica de Variaciones (Colores e Iconos) ---
+// --- Lógica de Variaciones ---
 const getTrendClass = (type, value) => {
     const isPositive = value >= 0;
-    // Para gastos: Subir es malo (Rojo), Bajar es bueno (Verde)
     if (type === 'expenses') {
         return isPositive ? 'text-red-500 bg-red-50' : 'text-emerald-500 bg-emerald-50';
     }
-    // Para ventas/ganancia: Subir es bueno (Verde), Bajar es malo (Rojo)
     return isPositive ? 'text-emerald-500 bg-emerald-50' : 'text-red-500 bg-red-50';
 };
 
 const getTrendIcon = (value) => {
     return value >= 0 ? 'pi pi-arrow-up' : 'pi pi-arrow-down';
 };
+
+// --- LÓGICA DEL TUTORIAL (ONBOARDING) ---
+
+const blockInteraction = (e) => {
+    if (!isTourActive.value) return;
+    if (e.target.closest && e.target.closest('.driver-popover')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+};
+
+const enableBlocking = () => {
+    isTourActive.value = true;
+    window.addEventListener('click', blockInteraction, true);
+    window.addEventListener('mousedown', blockInteraction, true);
+    window.addEventListener('touchstart', blockInteraction, true);
+    window.addEventListener('keydown', blockInteraction, true);
+};
+
+const disableBlocking = () => {
+    isTourActive.value = false;
+    window.removeEventListener('click', blockInteraction, true);
+    window.removeEventListener('mousedown', blockInteraction, true);
+    window.removeEventListener('touchstart', blockInteraction, true);
+    window.removeEventListener('keydown', blockInteraction, true);
+};
+
+const startTour = () => {
+    enableBlocking();
+
+    const tourDriver = driver({
+        showProgress: true,
+        allowClose: false,
+        showButtons: ['next', 'previous'],
+        doneBtnText: '¡Entendido!',
+        nextBtnText: 'Siguiente',
+        prevBtnText: 'Anterior',
+        steps: [
+            { 
+                element: '#tour-reports-header', 
+                popover: { 
+                    title: 'Reportes Financieros', 
+                    description: 'Esta sección te permite analizar la salud financiera de tu negocio. Puedes ver cómo han evolucionado tus ventas y gastos.',
+                    side: "bottom",
+                    align: 'start'
+                } 
+            },
+            { 
+                element: '#tour-time-filters', 
+                popover: { 
+                    title: 'Filtros de Tiempo', 
+                    description: 'Cambia la vista para analizar el rendimiento de Hoy, la Semana, el Mes o todo el Año. Todos los datos se actualizarán automáticamente.',
+                } 
+            },
+            { 
+                element: '#tour-kpi-grid', 
+                popover: { 
+                    title: 'Indicadores Clave (KPIs)', 
+                    description: 'Aquí ves el resumen: Ventas Totales, Gastos y Ganancia Neta. También te mostramos la comparación (en porcentaje) con el periodo anterior.',
+                } 
+            },
+            { 
+                element: '#tour-sales-chart', 
+                popover: { 
+                    title: 'Tendencia de Ventas', 
+                    description: 'Esta gráfica te ayuda a identificar visualmente los picos y caídas en tus ventas durante el periodo seleccionado.',
+                } 
+            },
+            { 
+                element: '#tour-top-products', 
+                popover: { 
+                    title: 'Productos Estrella', 
+                    description: 'Descubre cuáles son tus 5 productos más vendidos. Útil para tomar decisiones de inventario y promociones.',
+                } 
+            }
+        ],
+        onDestroyStarted: () => {
+            markTourAsCompleted();
+            tourDriver.destroy();
+            disableBlocking();
+        }
+    });
+
+    tourDriver.drive();
+};
+
+const markTourAsCompleted = async () => {
+    try {
+        await axios.post(route('tutorials.complete'), { module_name: 'financial_reports' });
+    } catch (error) {
+        console.error('No se pudo guardar el progreso del tutorial', error);
+    }
+};
+
+// Lifecycle Hooks
+onMounted(async () => {
+    initChart();
+
+    try {
+        const response = await axios.get(route('tutorials.check', 'financial_reports'));
+        if (!response.data.completed) {
+            isLoadingTour.value = true;
+            setTimeout(() => {
+                isLoadingTour.value = false;
+                startTour();
+            }, 800);
+        }
+    } catch (error) {
+        console.error('Error verificando tutorial', error);
+        isLoadingTour.value = false;
+    }
+});
+
+watch(() => props.chartData, () => {
+    initChart();
+});
+
+onBeforeUnmount(() => {
+    disableBlocking();
+});
 </script>
 
 <template>
     <AppLayout title="Reportes Financieros">
-        <div class="py-8">
+        
+        <!-- Overlay de Carga -->
+        <div v-if="isLoadingTour" class="fixed inset-0 z-[9999] bg-white/90 backdrop-blur-sm flex flex-col items-center justify-center">
+            <ProgressSpinner strokeWidth="4" animationDuration=".5s" />
+            <p class="mt-4 text-gray-500 font-medium animate-pulse">Preparando sistema...</p>
+        </div>
+
+        <!-- Capa de Bloqueo -->
+        <div v-if="isTourActive" class="fixed inset-0 z-[60] bg-transparent cursor-default"></div>
+
+        <div class="py-8 transition-opacity duration-300"
+             :class="{ '!pointer-events-none select-none': isTourActive }">
             <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 
                 <!-- Header y Filtros -->
-                <div class="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+                <!-- ID TOUR: Header -->
+                <div id="tour-reports-header" class="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
                     <div>
                         <h1 class="text-2xl font-bold text-gray-900 tracking-tight">Reportes Financieros</h1>
                         <p class="text-sm text-gray-500 mt-1">Visión general del rendimiento del negocio.</p>
                     </div>
 
-                    <!-- Filtro Tipo Segmented Control (Mac Style) -->
-                    <div class="bg-gray-100 p-1 rounded-lg inline-flex shadow-inner">
+                    <!-- Filtro Tipo Segmented Control -->
+                    <!-- ID TOUR: Filtros -->
+                    <div id="tour-time-filters" class="bg-gray-100 p-1 rounded-lg inline-flex shadow-inner">
                         <button 
                             v-for="item in filters" 
                             :key="item.key"
@@ -185,7 +315,8 @@ const getTrendIcon = (value) => {
                 </div>
 
                 <!-- Grid de KPIs -->
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <!-- ID TOUR: KPIs -->
+                <div id="tour-kpi-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                     
                     <!-- Card: Ventas -->
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 relative overflow-hidden group hover:shadow-md transition-shadow">
@@ -269,7 +400,8 @@ const getTrendIcon = (value) => {
                 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     
                     <!-- Gráfica de Tendencias -->
-                    <div class="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                    <!-- ID TOUR: Chart -->
+                    <div id="tour-sales-chart" class="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
                         <h3 class="text-lg font-bold text-gray-800 mb-4">Tendencia de Ventas</h3>
                         <div class="relative h-80 w-full">
                             <canvas ref="chartRef"></canvas>
@@ -277,7 +409,8 @@ const getTrendIcon = (value) => {
                     </div>
 
                     <!-- Top Productos -->
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                    <!-- ID TOUR: Top Productos -->
+                    <div id="tour-top-products" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
                         <h3 class="text-lg font-bold text-gray-800 mb-4">Top 5 Productos</h3>
                         <div class="overflow-x-auto">
                             <table class="w-full text-sm text-left">

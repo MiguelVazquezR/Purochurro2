@@ -1,9 +1,15 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { Head, Link } from '@inertiajs/vue3';
 import Dialog from 'primevue/dialog';
 import Button from 'primevue/button';
+import axios from 'axios';
+import ProgressSpinner from 'primevue/progressspinner';
+
+// --- IMPORTAR DRIVER.JS PARA EL TOUR ---
+import { driver } from "driver.js";
+import "driver.js/dist/driver.css";
 
 const props = defineProps({
     isAdmin: Boolean,
@@ -14,6 +20,10 @@ const props = defineProps({
 // Modal de Horario
 const showScheduleModal = ref(false);
 
+// --- ESTADOS PARA EL TOUR ---
+const isLoadingTour = ref(false);
+const isTourActive = ref(false);
+
 const formatCurrency = (value) => {
     return new Intl.NumberFormat('es-MX', {
         style: 'currency',
@@ -22,8 +32,6 @@ const formatCurrency = (value) => {
     }).format(value || 0);
 };
 
-// --- Fix de Fecha para Nómina Actual ---
-// Generamos la fecha localmente 'YYYY-MM-DD' para evitar problemas de UTC
 const getCurrentLocalDate = () => {
     const today = new Date();
     const year = today.getFullYear();
@@ -40,25 +48,202 @@ const attendancePercentage = computed(() => {
 const presentCount = computed(() => props.stats.present_list?.length || 0);
 const absentCount = computed(() => props.stats.absent_list?.length || 0);
 const vacationCount = computed(() => props.stats.vacation_list?.length || 0);
+
+// --- LÓGICA DEL TUTORIAL (ONBOARDING) ---
+
+const blockInteraction = (e) => {
+    if (!isTourActive.value) return;
+    if (e.target.closest && e.target.closest('.driver-popover')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+};
+
+const enableBlocking = () => {
+    isTourActive.value = true;
+    window.addEventListener('click', blockInteraction, true);
+    window.addEventListener('mousedown', blockInteraction, true);
+    window.addEventListener('touchstart', blockInteraction, true);
+    window.addEventListener('keydown', blockInteraction, true);
+};
+
+const disableBlocking = () => {
+    isTourActive.value = false;
+    window.removeEventListener('click', blockInteraction, true);
+    window.removeEventListener('mousedown', blockInteraction, true);
+    window.removeEventListener('touchstart', blockInteraction, true);
+    window.removeEventListener('keydown', blockInteraction, true);
+};
+
+const startTour = () => {
+    enableBlocking();
+
+    // Definimos pasos dinámicos según el rol
+    let steps = [];
+
+    if (props.isAdmin) {
+        // --- Pasos para ADMINISTRADOR ---
+        steps = [
+            {
+                element: '#tour-admin-header',
+                popover: {
+                    title: 'Panel de Control',
+                    description: 'Bienvenido a tu centro de comando. Aquí tienes una visión general inmediata de tu negocio hoy.',
+                    side: "bottom",
+                    align: 'start'
+                }
+            },
+            {
+                element: '#tour-admin-stats',
+                popover: {
+                    title: 'Métricas Clave',
+                    description: 'Revisa las ventas netas del día, gastos registrados y el estado de las solicitudes pendientes de tus empleados.',
+                }
+            },
+            {
+                element: '#tour-admin-attendance',
+                popover: {
+                    title: 'Control de Asistencia',
+                    description: 'Monitorea en tiempo real quién está trabajando, quién falta por llegar y quién se encuentra de vacaciones.',
+                }
+            },
+            {
+                element: '#tour-admin-inventory',
+                popover: {
+                    title: 'Inventario Crítico',
+                    description: 'Atención aquí: Lista de productos con bajo stock que requieren resurtido urgente.',
+                }
+            },
+            {
+                element: '#tour-birthdays',
+                popover: {
+                    title: 'Cumpleaños',
+                    description: 'No olvides felicitar a tu equipo. Aquí verás los próximos cumpleaños.',
+                }
+            }
+        ];
+    } else {
+        // --- Pasos para EMPLEADO ---
+        steps = [
+            {
+                element: '#tour-emp-welcome',
+                popover: {
+                    title: 'Mi Espacio',
+                    description: 'Bienvenido a tu portal personal. Aquí encontrarás todo lo relacionado con tu trabajo y asistencia.',
+                    side: "bottom",
+                    align: 'start'
+                }
+            },
+            {
+                element: '#tour-emp-shift',
+                popover: {
+                    title: 'Próximo Turno',
+                    description: 'Consulta rápidamente cuándo te toca trabajar y accede a tu horario semanal completo.',
+                }
+            },
+            {
+                element: '#tour-emp-payroll',
+                popover: {
+                    title: 'Nómina Estimada',
+                    description: 'Lleva el control de tus ganancias. Aquí verás un estimado de lo que llevas acumulado en la semana actual.',
+                }
+            },
+            {
+                element: '#tour-emp-vacation',
+                popover: {
+                    title: 'Mis Vacaciones',
+                    description: 'Este es tu saldo de días disponibles. Desde aquí puedes ir directamente a solicitar un descanso.',
+                }
+            },
+            {
+                element: '#tour-birthdays',
+                popover: {
+                    title: 'Celebraciones',
+                    description: 'Entérate de los próximos cumpleaños de tus compañeros.',
+                }
+            }
+        ];
+    }
+
+    const tourDriver = driver({
+        showProgress: true,
+        allowClose: false,
+        showButtons: ['next', 'previous'],
+        doneBtnText: '¡Entendido!',
+        nextBtnText: 'Siguiente',
+        prevBtnText: 'Anterior',
+        steps: steps,
+        onDestroyStarted: () => {
+            markTourAsCompleted();
+            tourDriver.destroy();
+            disableBlocking();
+        }
+    });
+
+    tourDriver.drive();
+};
+
+const markTourAsCompleted = async () => {
+    try {
+        await axios.post(route('tutorials.complete'), { module_name: 'dashboard' });
+    } catch (error) {
+        console.error('No se pudo guardar el progreso del tutorial', error);
+    }
+};
+
+onMounted(async () => {
+    try {
+        const response = await axios.get(route('tutorials.check', 'dashboard'));
+        if (!response.data.completed) {
+            isLoadingTour.value = true;
+            setTimeout(() => {
+                isLoadingTour.value = false;
+                startTour();
+            }, 800);
+        }
+    } catch (error) {
+        console.error('Error verificando tutorial', error);
+        isLoadingTour.value = false;
+    }
+});
+
+onBeforeUnmount(() => {
+    disableBlocking();
+});
 </script>
 
 <template>
     <AppLayout title="Dashboard">
         <template #header>
-            <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                {{ isAdmin ? 'Panel de Control' : 'Mi Espacio' }}
+            <!-- ID TOUR: Header (compartido o específico) -->
+            <h2 id="tour-admin-header" v-if="isAdmin" class="font-semibold text-xl text-gray-800 leading-tight">
+                Panel de Control
+            </h2>
+            <h2 id="tour-emp-header" v-else class="font-semibold text-xl text-gray-800 leading-tight">
+                Mi Espacio
             </h2>
         </template>
 
-        <div class="py-12">
+        <!-- Overlay de Carga -->
+        <div v-if="isLoadingTour" class="fixed inset-0 z-[9999] bg-white/90 backdrop-blur-sm flex flex-col items-center justify-center">
+            <ProgressSpinner strokeWidth="4" animationDuration=".5s" />
+            <p class="mt-4 text-gray-500 font-medium animate-pulse">Preparando sistema...</p>
+        </div>
+
+        <!-- Capa de Bloqueo -->
+        <div v-if="isTourActive" class="fixed inset-0 z-[60] bg-transparent cursor-default"></div>
+
+        <div class="py-12 transition-opacity duration-300"
+             :class="{ '!pointer-events-none select-none': isTourActive }">
             <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
                 
                 <!-- ========================== -->
                 <!--    VISTA DE ADMINISTRADOR  -->
                 <!-- ========================== -->
                 <div v-if="isAdmin" class="space-y-6">
-                    <!-- ... (Código de Admin IDÉNTICO, solo omitido para brevedad si no hubo cambios solicitados allí) ... -->
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    
+                    <!-- ID TOUR: Stats Principales -->
+                    <div id="tour-admin-stats" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                         <div class="bg-white overflow-hidden shadow-sm sm:rounded-xl p-6 border-l-4 border-emerald-500 relative group">
                             <div class="flex justify-between items-start">
                                 <div>
@@ -113,7 +298,8 @@ const vacationCount = computed(() => props.stats.vacation_list?.length || 0);
                     </div>
                     
                     <!-- Paneles Detalle Admin -->
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <!-- ID TOUR: Asistencia Detallada -->
+                    <div id="tour-admin-attendance" class="grid grid-cols-1 md:grid-cols-3 gap-6">
                         <div class="bg-white shadow-sm sm:rounded-xl border border-gray-100 flex flex-col h-64">
                             <div class="px-4 py-3 bg-blue-50 border-b border-blue-100 flex justify-between items-center rounded-t-xl">
                                 <h3 class="font-bold text-blue-800 flex items-center gap-2 text-sm"><i class="pi pi-check-circle"></i> En turno ({{ presentCount }})</h3>
@@ -173,7 +359,8 @@ const vacationCount = computed(() => props.stats.vacation_list?.length || 0);
 
                     <!-- Panel Inferior Admin -->
                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        <div class="lg:col-span-2 bg-white shadow-sm sm:rounded-xl overflow-hidden border border-gray-100 flex flex-col">
+                        <!-- ID TOUR: Inventario -->
+                        <div id="tour-admin-inventory" class="lg:col-span-2 bg-white shadow-sm sm:rounded-xl overflow-hidden border border-gray-100 flex flex-col">
                             <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
                                 <h3 class="font-bold text-gray-800 flex items-center gap-2"><i class="pi pi-box text-red-500"></i> Inventario Crítico</h3>
                                 <Link :href="route('products.index')" class="text-xs text-blue-600 hover:underline">Ver todo</Link>
@@ -198,7 +385,9 @@ const vacationCount = computed(() => props.stats.vacation_list?.length || 0);
                                 </table>
                             </div>
                         </div>
-                        <div class="bg-white shadow-sm sm:rounded-xl overflow-hidden border border-gray-100 flex flex-col">
+                        
+                        <!-- ID TOUR: Cumpleaños (Admin) -->
+                        <div id="tour-birthdays" class="bg-white shadow-sm sm:rounded-xl overflow-hidden border border-gray-100 flex flex-col">
                             <div class="px-6 py-4 border-b border-gray-100 bg-pink-50 flex justify-between items-center">
                                 <h3 class="font-bold text-pink-800 flex items-center gap-2"><i class="pi pi-gift text-pink-500"></i> Cumpleaños</h3>
                             </div>
@@ -222,7 +411,8 @@ const vacationCount = computed(() => props.stats.vacation_list?.length || 0);
                 <div v-else class="space-y-6">
                     
                     <!-- Bienvenida -->
-                    <div class="bg-gradient-to-r from-gray-900 to-gray-800 rounded-2xl p-6 text-white shadow-lg flex flex-col sm:flex-row justify-between items-center gap-4">
+                    <!-- ID TOUR: Bienvenida Emp -->
+                    <div id="tour-emp-welcome" class="bg-gradient-to-r from-gray-900 to-gray-800 rounded-2xl p-6 text-white shadow-lg flex flex-col sm:flex-row justify-between items-center gap-4">
                         <div>
                             <h2 class="text-2xl font-bold">¡Hola, {{ employee.first_name }}! 👋</h2>
                             <p class="text-gray-300 text-sm mt-1">Aquí tienes el resumen de tu semana.</p>
@@ -236,7 +426,8 @@ const vacationCount = computed(() => props.stats.vacation_list?.length || 0);
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                         
                         <!-- Tarjeta 1: Próximo Turno -->
-                        <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between h-full">
+                        <!-- ID TOUR: Turno -->
+                        <div id="tour-emp-shift" class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between h-full">
                             <div>
                                 <div class="flex items-center gap-2 text-gray-400 mb-2">
                                     <i class="pi pi-calendar text-lg"></i>
@@ -264,7 +455,8 @@ const vacationCount = computed(() => props.stats.vacation_list?.length || 0);
                         </div>
 
                         <!-- Tarjeta 2: Nómina Estimada (Semanal) -->
-                        <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between h-full">
+                        <!-- ID TOUR: Nómina -->
+                        <div id="tour-emp-payroll" class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between h-full">
                             <div>
                                 <div class="flex items-center gap-2 text-gray-400 mb-2">
                                     <i class="pi pi-wallet text-lg"></i>
@@ -285,7 +477,8 @@ const vacationCount = computed(() => props.stats.vacation_list?.length || 0);
                         </div>
 
                         <!-- Tarjeta 3: Vacaciones Disponibles -->
-                        <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between h-full">
+                        <!-- ID TOUR: Vacaciones -->
+                        <div id="tour-emp-vacation" class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between h-full">
                             <div>
                                 <div class="flex items-center gap-2 text-gray-400 mb-2">
                                     <i class="pi pi-briefcase text-lg"></i>
@@ -305,7 +498,8 @@ const vacationCount = computed(() => props.stats.vacation_list?.length || 0);
                     </div>
 
                     <!-- Sección Inferior: Cumpleaños -->
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                    <!-- ID TOUR: Cumpleaños (Emp) -->
+                    <div id="tour-birthdays" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
                         <h3 class="font-bold text-gray-800 mb-4 flex items-center gap-2">
                             <i class="pi pi-gift text-pink-500"></i> Próximos Cumpleaños
                         </h3>

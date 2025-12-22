@@ -1,25 +1,33 @@
 <script setup>
-import { ref, watch } from 'vue';
+import { ref, watch, onMounted, onBeforeUnmount } from 'vue';
 import { router, Link } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
+import axios from 'axios';
+import ProgressSpinner from 'primevue/progressspinner';
 
-// PrimeVue components (Auto-imported si usas un resolver, pero explícitos aquí por claridad)
+// PrimeVue components
 import Button from 'primevue/button';
 import DatePicker from 'primevue/datepicker';
 import Tag from 'primevue/tag';
 import Avatar from 'primevue/avatar';
 import AvatarGroup from 'primevue/avatargroup';
 
+// --- IMPORTAR DRIVER.JS PARA EL TOUR ---
+import { driver } from "driver.js";
+import "driver.js/dist/driver.css";
+
 const props = defineProps({
     salesHistory: Object,
     filters: Object,
 });
 
-// --- Helpers de Fecha Robustos ---
+// --- ESTADOS PARA EL TOUR ---
+const isLoadingTour = ref(false);
+const isTourActive = ref(false);
 
+// --- Helpers de Fecha Robustos ---
 const parseDateSafe = (dateString) => {
     if (!dateString) return null;
-    // Asumimos formato YYYY-MM-DD que viene de Laravel
     const cleanDate = dateString.substring(0, 10);
     const [year, month, day] = cleanDate.split('-').map(Number);
     return new Date(year, month - 1, day);
@@ -64,24 +72,165 @@ watch(dateFilter, (newDate) => {
     router.get(route('sales.index'), { date: dateParam }, {
         preserveState: true,
         replace: true,
-        only: ['salesHistory', 'filters'] // Optimización Inertia: solo recargar datos necesarios
+        only: ['salesHistory', 'filters'] 
     });
+});
+
+// --- LÓGICA DEL TUTORIAL (ONBOARDING) ---
+
+const blockInteraction = (e) => {
+    if (!isTourActive.value) return;
+    if (e.target.closest && e.target.closest('.driver-popover')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+};
+
+const enableBlocking = () => {
+    isTourActive.value = true;
+    window.addEventListener('click', blockInteraction, true);
+    window.addEventListener('mousedown', blockInteraction, true);
+    window.addEventListener('touchstart', blockInteraction, true);
+    window.addEventListener('keydown', blockInteraction, true);
+};
+
+const disableBlocking = () => {
+    isTourActive.value = false;
+    window.removeEventListener('click', blockInteraction, true);
+    window.removeEventListener('mousedown', blockInteraction, true);
+    window.removeEventListener('touchstart', blockInteraction, true);
+    window.removeEventListener('keydown', blockInteraction, true);
+};
+
+const startTour = () => {
+    enableBlocking();
+
+    const steps = [
+        { 
+            element: '#tour-sales-header', 
+            popover: { 
+                title: 'Historial de Operaciones', 
+                description: 'Aquí encontrarás el registro histórico de todos los cierres diarios de caja, permitiéndote auditar ventas pasadas.',
+                side: "bottom",
+                align: 'start'
+            } 
+        },
+        { 
+            element: '#tour-date-filter', 
+            popover: { 
+                title: 'Filtrado por Fecha', 
+                description: '¿Buscas un día específico? Usa este calendario para filtrar el historial rápidamente.',
+            } 
+        }
+    ];
+
+    // Si hay datos, mostramos los pasos de detalle sobre la primera tarjeta
+    if (props.salesHistory.data.length > 0) {
+        steps.push(
+            { 
+                element: '#tour-day-card-0', 
+                popover: { 
+                    title: 'Resumen del Día', 
+                    description: 'Cada tarjeta representa un día de operación (o turno). Aquí ves la fecha, el número de operación y si la caja ya fue cerrada.',
+                } 
+            },
+            { 
+                element: '#tour-staff-section-0', 
+                popover: { 
+                    title: 'Personal en Turno', 
+                    description: 'Identifica rápidamente quiénes trabajaron ese día gracias a sus avatares.',
+                } 
+            },
+            { 
+                element: '#tour-financials-0', 
+                popover: { 
+                    title: 'Desglose Financiero', 
+                    description: 'Un vistazo rápido a los totales: cuánto se vendió al público general, cuánto consumieron los empleados y el gran total ingresado.',
+                } 
+            },
+            { 
+                element: '#tour-details-btn-0', 
+                popover: { 
+                    title: 'Ver Detalles Completos', 
+                    description: 'Haz clic aquí para entrar al detalle profundo: ver ticket por ticket, productos vendidos, cortes de caja y más.',
+                } 
+            }
+        );
+    }
+
+    const tourDriver = driver({
+        showProgress: true,
+        allowClose: false,
+        showButtons: ['next', 'previous'],
+        doneBtnText: '¡Entendido!',
+        nextBtnText: 'Siguiente',
+        prevBtnText: 'Anterior',
+        steps: steps,
+        onDestroyStarted: () => {
+            markTourAsCompleted();
+            tourDriver.destroy();
+            disableBlocking();
+        }
+    });
+
+    tourDriver.drive();
+};
+
+const markTourAsCompleted = async () => {
+    try {
+        await axios.post(route('tutorials.complete'), { module_name: 'sales_history' });
+    } catch (error) {
+        console.error('No se pudo guardar el progreso del tutorial', error);
+    }
+};
+
+onMounted(async () => {
+    try {
+        const response = await axios.get(route('tutorials.check', 'sales_history'));
+        if (!response.data.completed) {
+            isLoadingTour.value = true;
+            setTimeout(() => {
+                isLoadingTour.value = false;
+                startTour();
+            }, 800);
+        }
+    } catch (error) {
+        console.error('Error verificando tutorial', error);
+        isLoadingTour.value = false;
+    }
+});
+
+onBeforeUnmount(() => {
+    disableBlocking();
 });
 </script>
 
 <template>
     <AppLayout title="Historial de Operaciones">
-        <div class="max-w-6xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+        
+        <!-- Overlay de Carga -->
+        <div v-if="isLoadingTour" class="fixed inset-0 z-[9999] bg-white/90 backdrop-blur-sm flex flex-col items-center justify-center">
+            <ProgressSpinner strokeWidth="4" animationDuration=".5s" />
+            <p class="mt-4 text-gray-500 font-medium animate-pulse">Preparando sistema...</p>
+        </div>
+
+        <!-- Capa de Bloqueo -->
+        <div v-if="isTourActive" class="fixed inset-0 z-[60] bg-transparent cursor-default"></div>
+
+        <div class="max-w-6xl mx-auto py-8 px-4 sm:px-6 lg:px-8 transition-opacity duration-300"
+             :class="{ '!pointer-events-none select-none': isTourActive }">
 
             <!-- Header -->
-            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+            <!-- ID TOUR: Header -->
+            <div id="tour-sales-header" class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
                 <div>
                     <h1 class="text-3xl font-black text-gray-900 tracking-tight">Cierres diarios</h1>
                     <p class="text-gray-500 mt-1">Monitoreo de ventas y operaciones por turno.</p>
                 </div>
 
                 <!-- Filtro con DatePicker -->
-                <div class="flex items-center gap-2 bg-white p-1.5 rounded-xl shadow-sm border border-gray-200">
+                <!-- ID TOUR: Filter -->
+                <div id="tour-date-filter" class="flex items-center gap-2 bg-white p-1.5 rounded-xl shadow-sm border border-gray-200">
                     <DatePicker 
                         v-model="dateFilter" 
                         showIcon 
@@ -124,7 +273,8 @@ watch(dateFilter, (newDate) => {
                 </div>
 
                 <!-- Tarjeta de Día -->
-                <div v-for="day in salesHistory.data" :key="day.id"
+                <div v-for="(day, index) in salesHistory.data" :key="day.id"
+                    :id="index === 0 ? 'tour-day-card-0' : null"
                     class="bg-white rounded-2xl border border-gray-200 overflow-hidden hover:shadow-xl transition-all duration-300 group">
 
                     <!-- Header de la Tarjeta -->
@@ -151,8 +301,11 @@ watch(dateFilter, (newDate) => {
 
                         <!-- Botón Ver Detalles (Desktop) -->
                         <Link :href="route('sales.show', day.id)" class="hidden sm:block">
-                            <Button label="Ver Detalles" icon="pi pi-arrow-right" iconPos="right" text 
-                                class="!text-indigo-600 hover:!bg-indigo-50 !font-bold" rounded />
+                            <!-- ID TOUR: Details Btn -->
+                            <div :id="index === 0 ? 'tour-details-btn-0' : null">
+                                <Button label="Ver Detalles" icon="pi pi-arrow-right" iconPos="right" text 
+                                    class="!text-indigo-600 hover:!bg-indigo-50 !font-bold" rounded />
+                            </div>
                         </Link>
                     </div>
 
@@ -160,7 +313,8 @@ watch(dateFilter, (newDate) => {
                     <div class="p-6 grid grid-cols-1 md:grid-cols-12 gap-8 items-center">
 
                         <!-- Columna 1: Staff (3 cols) -->
-                        <div class="md:col-span-4 lg:col-span-3 border-b md:border-b-0 md:border-r border-gray-100 pb-6 md:pb-0 md:pr-6">
+                        <!-- ID TOUR: Staff -->
+                        <div :id="index === 0 ? 'tour-staff-section-0' : null" class="md:col-span-4 lg:col-span-3 border-b md:border-b-0 md:border-r border-gray-100 pb-6 md:pb-0 md:pr-6">
                             <span class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-2">
                                 <i class="pi pi-users text-xs"></i> Equipo en turno
                             </span>
@@ -190,7 +344,8 @@ watch(dateFilter, (newDate) => {
                         </div>
 
                         <!-- Columna 2: Desglose Financiero (9 cols) -->
-                        <div class="md:col-span-8 lg:col-span-9">
+                        <!-- ID TOUR: Financials -->
+                        <div :id="index === 0 ? 'tour-financials-0' : null" class="md:col-span-8 lg:col-span-9">
                             <div class="grid grid-cols-1 sm:grid-cols-3 gap-6">
                                 
                                 <!-- Venta Público -->

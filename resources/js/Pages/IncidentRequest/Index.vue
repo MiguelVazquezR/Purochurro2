@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useForm, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Dialog from 'primevue/dialog';
@@ -14,6 +14,12 @@ import Tag from 'primevue/tag';
 import Message from 'primevue/message';
 import { useToast } from "primevue/usetoast";
 import Toast from 'primevue/toast';
+import axios from 'axios';
+import ProgressSpinner from 'primevue/progressspinner';
+
+// --- IMPORTAR DRIVER.JS PARA EL TOUR ---
+import { driver } from "driver.js";
+import "driver.js/dist/driver.css";
 
 const props = defineProps({
     requests: Object,
@@ -22,6 +28,10 @@ const props = defineProps({
 });
 
 const toast = useToast();
+
+// --- ESTADOS PARA EL TOUR ---
+const isLoadingTour = ref(false);
+const isTourActive = ref(false);
 
 // --- Mapeo de Etiquetas (Frontend) ---
 const incidentLabels = {
@@ -136,13 +146,150 @@ const confirmReject = () => {
         }
     });
 };
+
+// --- LÓGICA DEL TUTORIAL (ONBOARDING) ---
+
+const blockInteraction = (e) => {
+    if (!isTourActive.value) return;
+    if (e.target.closest && e.target.closest('.driver-popover')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+};
+
+const enableBlocking = () => {
+    isTourActive.value = true;
+    window.addEventListener('click', blockInteraction, true);
+    window.addEventListener('mousedown', blockInteraction, true);
+    window.addEventListener('touchstart', blockInteraction, true);
+    window.addEventListener('keydown', blockInteraction, true);
+};
+
+const disableBlocking = () => {
+    isTourActive.value = false;
+    window.removeEventListener('click', blockInteraction, true);
+    window.removeEventListener('mousedown', blockInteraction, true);
+    window.removeEventListener('touchstart', blockInteraction, true);
+    window.removeEventListener('keydown', blockInteraction, true);
+};
+
+const startTour = () => {
+    enableBlocking();
+
+    // Definimos los pasos base
+    const steps = [
+        { 
+            element: '#tour-incidents-header', 
+            popover: { 
+                title: props.canApprove ? 'Gestión de Permisos' : 'Mis Permisos e Incidencias', 
+                description: props.canApprove 
+                    ? 'Aquí podrás visualizar, aprobar o rechazar las solicitudes de permisos y vacaciones de tus colaboradores.' 
+                    : 'Desde aquí puedes gestionar tus vacaciones, permisos especiales o reportar incapacidades.',
+                side: "bottom",
+                align: 'start'
+            } 
+        }
+    ];
+
+    // Paso específico para empleados: Botón de crear
+    if (!props.canApprove) {
+        steps.push({
+            element: '#tour-create-btn',
+            popover: {
+                title: 'Nueva Solicitud',
+                description: 'Haz clic aquí para abrir el formulario y solicitar un nuevo permiso (vacaciones, incapacidad, etc).',
+            }
+        });
+    }
+
+    // Paso común: Tabla
+    steps.push({
+        element: '#tour-incidents-table',
+        popover: {
+            title: props.canApprove ? 'Historial de Solicitudes' : 'Historial y Estado',
+            description: props.canApprove
+                ? 'Revisa el historial de todas las solicitudes recibidas. Podrás ver el motivo y el estado actual de cada una.'
+                : 'Aquí verás el estado de tus solicitudes anteriores. Mantente atento a si fueron "Aprobadas" o "Rechazadas".',
+        }
+    });
+
+    // Paso específico para administradores: Columna de acciones (si hay datos)
+    if (props.canApprove && props.requests.data.length > 0) {
+        // Intentamos apuntar a la celda de acciones si existe, si no, al encabezado
+        steps.push({
+            element: '.p-datatable-tbody tr:first-child td:last-child', 
+            popover: {
+                title: 'Aprobar o Rechazar',
+                description: 'Usa estos botones para dar respuesta rápida a las solicitudes pendientes. Al aprobar, se actualizará automáticamente la asistencia del empleado.',
+            }
+        });
+    }
+
+    const tourDriver = driver({
+        showProgress: true,
+        allowClose: false,
+        showButtons: ['next', 'previous'],
+        doneBtnText: '¡Entendido!',
+        nextBtnText: 'Siguiente',
+        prevBtnText: 'Anterior',
+        steps: steps,
+        onDestroyStarted: () => {
+            markTourAsCompleted();
+            tourDriver.destroy();
+            disableBlocking();
+        }
+    });
+
+    tourDriver.drive();
+};
+
+const markTourAsCompleted = async () => {
+    try {
+        await axios.post(route('tutorials.complete'), { module_name: 'incident_requests' });
+    } catch (error) {
+        console.error('No se pudo guardar el progreso del tutorial', error);
+    }
+};
+
+onMounted(async () => {
+    try {
+        const response = await axios.get(route('tutorials.check', 'incident_requests'));
+        if (!response.data.completed) {
+            isLoadingTour.value = true;
+            setTimeout(() => {
+                isLoadingTour.value = false;
+                startTour();
+            }, 800);
+        }
+    } catch (error) {
+        console.error('Error verificando tutorial', error);
+        isLoadingTour.value = false;
+    }
+});
+
+onBeforeUnmount(() => {
+    disableBlocking();
+});
 </script>
 
 <template>
     <AppLayout title="Permisos e incidencias">
-        <div class="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+        
+        <!-- Overlay de Carga (Spinner) -->
+        <div v-if="isLoadingTour" class="fixed inset-0 z-[9999] bg-white/90 backdrop-blur-sm flex flex-col items-center justify-center">
+            <ProgressSpinner strokeWidth="4" animationDuration=".5s" />
+            <p class="mt-4 text-gray-500 font-medium animate-pulse">Preparando sistema...</p>
+        </div>
+
+        <!-- Capa de Bloqueo -->
+        <div v-if="isTourActive" class="fixed inset-0 z-[60] bg-transparent cursor-default"></div>
+
+        <div class="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8 transition-opacity duration-300"
+             :class="{ '!pointer-events-none select-none': isTourActive }">
+            
             <!-- Header -->
-            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+            <!-- ID TOUR: Header -->
+            <div id="tour-incidents-header" class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
                 <div>
                     <h1 class="text-2xl font-black text-gray-900">
                         {{ canApprove ? 'Gestión de permisos' : 'Mis solicitudes' }}
@@ -154,17 +301,21 @@ const confirmReject = () => {
                     </p>
                 </div>
 
-                <Button 
-                    v-if="!canApprove" 
-                    label="Solicitar permiso" 
-                    icon="pi pi-plus" 
-                    @click="showCreateModal = true" 
-                    class="shadow-lg"
-                />
+                <!-- ID TOUR: Botón Crear -->
+                <div id="tour-create-btn">
+                    <Button 
+                        v-if="!canApprove" 
+                        label="Solicitar permiso" 
+                        icon="pi pi-plus" 
+                        @click="showCreateModal = true" 
+                        class="shadow-lg"
+                    />
+                </div>
             </div>
 
             <!-- Tabla de Solicitudes -->
-            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+            <!-- ID TOUR: Tabla -->
+            <div id="tour-incidents-table" class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                 <DataTable :value="requests.data" :rows="10" paginator stripedRows>
                     <template #empty>
                         <div class="text-center py-12 text-gray-500">

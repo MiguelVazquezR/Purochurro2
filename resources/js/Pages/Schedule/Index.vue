@@ -1,15 +1,17 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
 import { Head, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { format, addDays, parseISO, isSameDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useToast } from "primevue/usetoast";
 import { useConfirm } from "primevue/useconfirm";
+import axios from 'axios';
+import ProgressSpinner from 'primevue/progressspinner';
 
-// Componentes de PrimeVue (Asegúrate de tenerlos registrados o impórtalos si no son globales)
-// import Popover from 'primevue/popover'; // Para v4
-// import OverlayPanel from 'primevue/overlaypanel'; // Para v3
+// --- IMPORTAR DRIVER.JS PARA EL TOUR ---
+import { driver } from "driver.js";
+import "driver.js/dist/driver.css";
 
 const props = defineProps({
     employees: {
@@ -38,6 +40,10 @@ const updatingCell = ref(null);
 // Referencias para el Popover
 const op = ref();
 const selectedCellData = ref(null);
+
+// --- ESTADOS PARA EL TOUR ---
+const isLoadingTour = ref(false);
+const isTourActive = ref(false);
 
 // Días de la semana para las columnas
 const weekDays = computed(() => {
@@ -135,23 +141,19 @@ const getSchedule = (employee, date) => {
     return employee.week_schedules ? employee.week_schedules[dateStr] : null;
 };
 
-// --- CAMBIO: Formato de Hora a 12h (AM/PM) ---
 const formatTime = (timeStr) => {
     if (!timeStr) return '';
-    
-    // timeStr viene usualmente como "HH:mm" o "HH:mm:ss"
     const [hoursStr, minutesStr] = timeStr.split(':');
     let hours = parseInt(hoursStr);
     const minutes = minutesStr;
     const ampm = hours >= 12 ? 'PM' : 'AM';
     
     hours = hours % 12;
-    hours = hours ? hours : 12; // el '0' debe ser '12'
+    hours = hours ? hours : 12; 
     
     return `${hours}:${minutes} ${ampm}`;
 };
 
-// Estilos dinámicos
 const getShiftBadgeStyle = (shift) => {
     if (!shift) return {};
     return {
@@ -160,14 +162,139 @@ const getShiftBadgeStyle = (shift) => {
         border: `1px solid ${shift.color ? `${shift.color}40` : '#bae6fd'}`
     };
 };
+
+// --- LÓGICA DEL TUTORIAL (ONBOARDING) ---
+
+const blockInteraction = (e) => {
+    if (!isTourActive.value) return;
+    if (e.target.closest && e.target.closest('.driver-popover')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+};
+
+const enableBlocking = () => {
+    isTourActive.value = true;
+    window.addEventListener('click', blockInteraction, true);
+    window.addEventListener('mousedown', blockInteraction, true);
+    window.addEventListener('touchstart', blockInteraction, true);
+    window.addEventListener('keydown', blockInteraction, true);
+};
+
+const disableBlocking = () => {
+    isTourActive.value = false;
+    window.removeEventListener('click', blockInteraction, true);
+    window.removeEventListener('mousedown', blockInteraction, true);
+    window.removeEventListener('touchstart', blockInteraction, true);
+    window.removeEventListener('keydown', blockInteraction, true);
+};
+
+const startTour = () => {
+    enableBlocking();
+
+    const tourDriver = driver({
+        showProgress: true,
+        allowClose: false,
+        showButtons: ['next', 'previous'],
+        doneBtnText: '¡Entendido!',
+        nextBtnText: 'Siguiente',
+        prevBtnText: 'Anterior',
+        steps: [
+            { 
+                element: '#tour-schedule-header', 
+                popover: { 
+                    title: 'Gestión de Horarios', 
+                    description: 'En este módulo puedes planificar y asignar los turnos de trabajo de todos tus empleados para la semana.',
+                    side: "bottom",
+                    align: 'start'
+                } 
+            },
+            { 
+                element: '#tour-date-controls', 
+                popover: { 
+                    title: 'Navegación', 
+                    description: 'Utiliza estas flechas para moverte entre semanas. Siempre puedes volver a la semana actual con el botón "Hoy".',
+                } 
+            },
+            { 
+                element: '#tour-generate-btn', 
+                popover: { 
+                    title: 'Generación Automática', 
+                    description: '¡Ahorra tiempo! Si tienes plantillas de turnos configuradas en los perfiles de empleado, este botón llenará toda la semana automáticamente con un solo clic.',
+                } 
+            },
+            { 
+                element: '#tour-schedule-grid', 
+                popover: { 
+                    title: 'Cuadrícula de Turnos', 
+                    description: 'Esta tabla muestra la asignación actual. Las filas son tus empleados y las columnas los días de la semana.',
+                } 
+            },
+            { 
+                element: '#tour-first-cell', 
+                popover: { 
+                    title: 'Asignar Turno', 
+                    description: 'Haz clic en cualquier celda (día/empleado) para abrir el menú y seleccionar un turno o marcarlo como descanso.',
+                } 
+            }
+        ],
+        onDestroyStarted: () => {
+            markTourAsCompleted();
+            tourDriver.destroy();
+            disableBlocking();
+        }
+    });
+
+    tourDriver.drive();
+};
+
+const markTourAsCompleted = async () => {
+    try {
+        await axios.post(route('tutorials.complete'), { module_name: 'schedule_management' });
+    } catch (error) {
+        console.error('No se pudo guardar el progreso del tutorial', error);
+    }
+};
+
+onMounted(async () => {
+    try {
+        const response = await axios.get(route('tutorials.check', 'schedule_management'));
+        if (!response.data.completed) {
+            isLoadingTour.value = true;
+            setTimeout(() => {
+                isLoadingTour.value = false;
+                startTour();
+            }, 800);
+        }
+    } catch (error) {
+        console.error('Error verificando tutorial', error);
+        isLoadingTour.value = false;
+    }
+});
+
+onBeforeUnmount(() => {
+    disableBlocking();
+});
 </script>
 
 <template>
-    <AppLayout title="Asignación de horarios">        
-        <div class="w-full flex flex-col gap-6">
+    <AppLayout title="Asignación de horarios">
+        
+        <!-- Overlay de Carga -->
+        <div v-if="isLoadingTour" class="fixed inset-0 z-[9999] bg-white/90 backdrop-blur-sm flex flex-col items-center justify-center">
+            <ProgressSpinner strokeWidth="4" animationDuration=".5s" />
+            <p class="mt-4 text-gray-500 font-medium animate-pulse">Preparando sistema...</p>
+        </div>
+
+        <!-- Capa de Bloqueo -->
+        <div v-if="isTourActive" class="fixed inset-0 z-[60] bg-transparent cursor-default"></div>
+
+        <div class="w-full flex flex-col gap-6 transition-opacity duration-300"
+             :class="{ '!pointer-events-none select-none': isTourActive }">
             
             <!-- Encabezado y Controles -->
-            <div class="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+            <!-- ID TOUR: Header -->
+            <div id="tour-schedule-header" class="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
                 <div>
                     <h1 class="text-3xl font-bold tracking-tight text-surface-900">Horarios</h1>
                     <p class="text-surface-500 text-sm mt-1">Gestión y asignación semanal de turnos.</p>
@@ -175,7 +302,8 @@ const getShiftBadgeStyle = (shift) => {
                 
                 <div class="flex flex-col sm:flex-row gap-3 items-start sm:items-center bg-white/50 backdrop-blur-md p-2 rounded-2xl border border-surface-200 shadow-sm">
                     <!-- Navegación de Fechas -->
-                    <div class="flex items-center bg-surface-50 rounded-xl p-1 border border-surface-200 w-full sm:w-auto justify-between sm:justify-start">
+                    <!-- ID TOUR: Date Controls -->
+                    <div id="tour-date-controls" class="flex items-center bg-surface-50 rounded-xl p-1 border border-surface-200 w-full sm:w-auto justify-between sm:justify-start">
                         <Button 
                             icon="pi pi-chevron-left" 
                             text 
@@ -213,21 +341,25 @@ const getShiftBadgeStyle = (shift) => {
                             class="!text-surface-600 hover:!bg-surface-100 hidden sm:flex"
                             @click="goToToday"
                         />
-                        <Button 
-                            label="Generar Automático" 
-                            icon="pi pi-bolt" 
-                            :loading="loadingGenerate"
-                            class="!bg-indigo-600 !border-indigo-600 hover:!bg-indigo-700 font-semibold shadow-lg shadow-indigo-200/50 flex-1 sm:flex-none"
-                            rounded
-                            @click="confirmGenerateWeek"
-                            v-tooltip.bottom="'Aplica las plantillas predeterminadas a toda la semana'"
-                        />
+                        <!-- ID TOUR: Generate Btn -->
+                        <div id="tour-generate-btn" class="flex-1 sm:flex-none">
+                            <Button 
+                                label="Generar Automático" 
+                                icon="pi pi-bolt" 
+                                :loading="loadingGenerate"
+                                class="!bg-indigo-600 !border-indigo-600 hover:!bg-indigo-700 font-semibold shadow-lg shadow-indigo-200/50 w-full"
+                                rounded
+                                @click="confirmGenerateWeek"
+                                v-tooltip.bottom="'Aplica las plantillas predeterminadas a toda la semana'"
+                            />
+                        </div>
                     </div>
                 </div>
             </div>
 
             <!-- Contenedor Principal Glassmorphism -->
-            <div class="bg-white/80 backdrop-blur-xl border border-surface-200 rounded-3xl shadow-xl overflow-hidden p-1 relative">
+            <!-- ID TOUR: Grid -->
+            <div id="tour-schedule-grid" class="bg-white/80 backdrop-blur-xl border border-surface-200 rounded-3xl shadow-xl overflow-hidden p-1 relative">
                 
                 <!-- Tabla Customizada -->
                 <div class="overflow-x-auto rounded-2xl pb-10 sm:pb-0"> <!-- Padding bottom para scroll en móvil -->
@@ -258,7 +390,7 @@ const getShiftBadgeStyle = (shift) => {
 
                         <!-- Body -->
                         <tbody class="divide-y divide-surface-100 bg-white/40">
-                            <tr v-for="employee in employees" :key="employee.id" class="group hover:bg-surface-50/50 transition-colors duration-200">
+                            <tr v-for="(employee, index) in employees" :key="employee.id" class="group hover:bg-surface-50/50 transition-colors duration-200">
                                 
                                 <!-- Columna Empleado (Sticky) -->
                                 <td class="p-2 sm:p-4 sticky left-0 bg-white/95 backdrop-blur-md group-hover:bg-surface-50/95 z-10 border-r border-surface-200 shadow-[4px_0_10px_-4px_rgba(0,0,0,0.05)]">
@@ -290,9 +422,10 @@ const getShiftBadgeStyle = (shift) => {
 
                                 <!-- Celdas de Días -->
                                 <td 
-                                    v-for="day in weekDays" 
+                                    v-for="(day, dayIndex) in weekDays" 
                                     :key="day.toString()" 
                                     class="p-0 border-l border-surface-100 relative h-20 sm:h-24 align-top transition-all duration-200 hover:bg-surface-50 hover:shadow-inner cursor-pointer"
+                                    :id="index === 0 && dayIndex === 0 ? 'tour-first-cell' : null" 
                                     @click="(e) => toggleShiftSelector(e, employee, day)"
                                 >
                                     <div class="w-full h-full flex flex-col p-2">
@@ -322,7 +455,7 @@ const getShiftBadgeStyle = (shift) => {
                                                 </div>
                                             </template>
 
-                                            <!-- --- CAMBIO: Estado Descanso / Vacío Visible --- -->
+                                            <!-- Estado Descanso / Vacío -->
                                             <template v-else>
                                                 <div class="w-full h-full flex flex-col items-center justify-center">
                                                     <!-- Texto visible siempre -->

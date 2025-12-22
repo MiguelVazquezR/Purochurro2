@@ -74,4 +74,23 @@ class User extends Authenticatable
     {
         return $this->hasMany(Expense::class);
     }
+
+    /**
+     * Relación: Registro de tutoriales completados por el usuario.
+     */
+    public function tutorials(): HasMany
+    {
+        return $this->hasMany(UserTutorial::class);
+    }
+
+    /**
+     * Helper para verificar si un módulo ya fue completado.
+     */
+    public function hasCompletedTutorial(string $moduleName): bool
+    {
+        return $this->tutorials()
+            ->where('module_name', $moduleName)
+            ->where('is_completed', true)
+            ->exists();
+    }
 }

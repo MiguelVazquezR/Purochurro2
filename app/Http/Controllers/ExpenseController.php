@@ -8,15 +8,43 @@ use Inertia\Inertia;
 
 class ExpenseController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $expenses = Expense::with('user')
-            ->orderBy('date', 'desc')
-            ->orderBy('created_at', 'desc')
-            ->get();
+        $query = Expense::with('user');
+
+        // --- Búsqueda Global (Server-Side) ---
+        if ($request->filled('search')) {
+            $search = $request->input('search');
+            $query->where(function($q) use ($search) {
+                $q->where('concept', 'like', "%{$search}%")
+                  ->orWhere('amount', 'like', "%{$search}%")
+                  ->orWhereHas('user', function($q) use ($search) {
+                      $q->where('name', 'like', "%{$search}%");
+                  });
+            });
+        }
+
+        // --- Ordenamiento ---
+        // Manejamos el ordenamiento dinámico o por defecto
+        $sortField = $request->input('sortField', 'date');
+        $sortOrder = $request->input('sortOrder', 'desc'); // 'asc' o 'desc'
+        
+        // Mapeo simple para asegurar que solo ordenamos por columnas permitidas
+        $allowedSorts = ['date', 'concept', 'amount', 'created_at'];
+        if (in_array($sortField, $allowedSorts)) {
+             $query->orderBy($sortField, $sortOrder);
+        } else {
+             $query->orderBy('date', 'desc');
+        }
+
+        // Siempre un orden secundario para consistencia en la paginación
+        $query->orderBy('created_at', 'desc');
+
+        $expenses = $query->paginate(10)->withQueryString();
 
         return Inertia::render('Expense/Index', [
-            'expenses' => $expenses
+            'expenses' => $expenses,
+            'filters' => $request->only(['search', 'sortField', 'sortOrder'])
         ]);
     }
 
