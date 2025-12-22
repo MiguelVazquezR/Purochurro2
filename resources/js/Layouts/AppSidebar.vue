@@ -1,7 +1,6 @@
 <script setup>
 import { computed, ref, watchEffect } from 'vue';
 import { usePage, Link } from '@inertiajs/vue3';
-import Dialog from 'primevue/dialog';
 
 const props = defineProps({
     visible: Boolean, // Para móvil (Drawer)
@@ -31,6 +30,7 @@ const menuItems = computed(() => {
     const items = [
         { label: 'Inicio', route: 'dashboard', icon: 'pi pi-home', visible: true },
         { label: 'Punto de venta', route: 'pos.index', icon: 'pi pi-shopping-bag', visible: true },
+        { label: 'Reportes', route: 'reports.index', icon: 'pi pi-chart-bar', visible: isAdmin.value },
         { label: 'Usuarios', route: 'employees.index', icon: 'pi pi-users', visible: isAdmin.value },
         { 
             label: 'Nóminas', 

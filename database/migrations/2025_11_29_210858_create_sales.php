@@ -16,6 +16,11 @@ return new class extends Migration
             
             $table->decimal('total', 10, 2);
             $table->string('payment_method')->default('cash'); // cash, card, transfer
+            // false = Público General, true = Venta a Empleado
+            $table->boolean('is_employee_sale')->default(false);
+            
+            // Opcional: Si quieres indexarlo para reportes rápidos
+            $table->index('is_employee_sale');
             
             $table->timestamps();
         });

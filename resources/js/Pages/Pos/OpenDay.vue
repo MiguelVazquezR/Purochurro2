@@ -92,7 +92,7 @@ const formatCurrency = (value) => {
                         <button 
                             @click="submitOpenDay"
                             :disabled="form.processing"
-                            class="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm shadow-lg shadow-indigo-200 transform active:scale-95 transition-all flex items-center justify-center gap-2"
+                            class="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm shadow-lg shadow-indigo-200 transform active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             <i v-if="form.processing" class="pi pi-spin pi-spinner"></i>
                             <i v-else class="pi pi-lock-open"></i>

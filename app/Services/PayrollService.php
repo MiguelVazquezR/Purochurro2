@@ -7,6 +7,7 @@ use App\Models\Attendance;
 use App\Models\DailyOperation;
 use App\Models\Employee;
 use App\Models\Holiday;
+use App\Models\Product;
 use App\Models\WorkSchedule;
 use Carbon\Carbon;
 use App\Services\BonusService;
@@ -206,7 +207,8 @@ class PayrollService
             if ($dayIsAttendance && $operation && $operation->is_closed) {
                 $dailySales = $operation->sales->sum('total');
                 if ($dailySales > 0) {
-                    $baseCommission = floor(($dailySales / 330) / 10) * 10;
+                    $refProduct = Product::find(1);
+                    $baseCommission = floor(($dailySales / ($refProduct->price * 10)) / 10) * 10;
                     $finalCommission = $baseCommission * $shiftsCount;
 
                     if ($finalCommission > 0) {

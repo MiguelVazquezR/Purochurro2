@@ -1,13 +1,8 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
-import { Head, useForm, Link } from '@inertiajs/vue3'; 
+import { useForm, Link } from '@inertiajs/vue3'; 
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { useToast } from "primevue/usetoast";
-import Dialog from 'primevue/dialog';
-import Button from 'primevue/button';
-import Select from 'primevue/select';
-import Tag from 'primevue/tag';
-import ToggleButton from 'primevue/togglebutton'; // Importante para el botón de empleado
 
 const props = defineProps({
     operation: Object,
@@ -30,6 +25,7 @@ const paymentForm = useForm({
     payment_method: 'cash',
     items: [],
     cash_received: 0,
+    is_employee_sale: false, // Campo para enviar la bandera al backend
 });
 
 const filteredProducts = computed(() => {
@@ -72,7 +68,7 @@ const addToCart = (product) => {
     // Validación simple de stock al agregar
     const currentQty = item ? item.quantity : 0;
     if (product.track_inventory && currentQty + 1 > stock) {
-        toast.add({ severity: 'warn', summary: 'Sin stock', detail: 'No hay más unidades en esta ubicación.', life: 2000 });
+        toast.add({ severity: 'warn', summary: 'Sin stock', detail: 'No hay más unidades en esta ubicación.', life: 3000 });
         return;
     }
 
@@ -98,7 +94,7 @@ const updateQty = (index, delta) => {
     
     // Validar stock al incrementar
     if (delta > 0 && product.track_inventory && newVal > stock) {
-        toast.add({ severity: 'warn', summary: 'Sin stock', detail: 'Límite de existencias alcanzado.', life: 2000 });
+        toast.add({ severity: 'warn', summary: 'Sin stock', detail: 'Límite de existencias alcanzado.', life: 3000 });
         return;
     }
 
@@ -135,6 +131,10 @@ const processSale = () => {
     if (!canPay.value) return;
     processingPayment.value = true;
     paymentForm.location_id = selectedLocation.value;
+    
+    // Asignamos el valor de la bandera al formulario antes de enviarlo
+    paymentForm.is_employee_sale = isEmployeeSale.value;
+    
     paymentForm.items = cart.value.map(i => ({ product_id: i.product_id, quantity: i.quantity, price: i.price }));
     
     paymentForm.post(route('pos.store-sale'), {
@@ -177,9 +177,9 @@ const formatCurrency = (val) => new Intl.NumberFormat('es-MX', { style: 'currenc
                             <Link :href="route('stock-transfers.index')" v-tooltip.bottom="'Traspasos'">
                                 <Button icon="pi pi-arrows-h" text rounded severity="help" class="!w-10 !h-10 hover:bg-indigo-50" />
                             </Link>
-                            <Link :href="route('stock-adjustments.index')" v-tooltip.bottom="'Entradas/Salidas/Mermas'">
+                            <!-- <Link :href="route('stock-adjustments.index')" v-tooltip.bottom="'Entradas/Salidas/Mermas'">
                                 <Button icon="pi pi-sliders-h" text rounded severity="warn" class="!w-10 !h-10 hover:bg-orange-50" />
-                            </Link>
+                            </Link> -->
                         </div>
                     </div>
 

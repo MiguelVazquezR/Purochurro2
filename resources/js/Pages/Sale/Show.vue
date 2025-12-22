@@ -8,7 +8,11 @@ const props = defineProps({
     sales: Array,
     totalSales: Number,
     // Nueva prop que recibe el staff calculado desde WorkSchedule
-    scheduledStaff: Array
+    scheduledStaff: Array,
+    commissionBase: {
+        type: Number,
+        default: 0
+    }
 });
 
 // --- Helpers de Formato ---
@@ -86,11 +90,15 @@ const form = useForm({
     notes: '',
 });
 
+// Usamos la prop dinámica en lugar del número fijo 320
 const commissionPerTurn = computed(() => {
-    if (!props.totalSales) return 0;
-    const division = props.totalSales / 320;
-    return Math.floor(division / 10) * 10;
+    return props.commissionBase; 
 });
+// const commissionPerTurn = computed(() => {
+//     if (!props.totalSales) return 0;
+//     const division = props.totalSales / 330;
+//     return Math.floor(division / 10) * 10;
+// });
 
 const expectedCash = computed(() => {
     const start = parseFloat(props.operation.cash_start) || 0;
@@ -207,7 +215,7 @@ const submitClose = () => {
                     </div>
                     
                     <div v-else class="flex flex-col items-center justify-center h-full text-gray-400 py-4">
-                        <i class="pi pi-calendar-minus text-2xl mb-2 opacity-50"></i>
+                        <i class="pi pi-calendar-minus !text-2xl mb-2 opacity-50"></i>
                         <span class="text-sm text-center">Nadie programado en calendario para este día.</span>
                     </div>
                 </div>

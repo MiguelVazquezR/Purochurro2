@@ -41,8 +41,9 @@ class MigrateLegacyData extends Command
             
             $this->migrateUsersAndEmployees();
             $this->migrateProductsAndInventory();
-            // $this->migrateOperationsAndSales();
-            // $this->migrateExpenses();
+            $this->migrateOperationsAndSales();
+            $this->migrateEmployeeSales(); 
+            $this->migrateExpenses();
             $this->migrateHolidaysAndBonuses();
             
             DB::statement('SET FOREIGN_KEY_CHECKS=1;');
@@ -78,7 +79,6 @@ class MigrateLegacyData extends Command
                 $newUser = $existingUser;
             }
 
-            // Restricción explícita para ID 1
             if ($newUser->id == 1) {
                 continue;
             }
@@ -95,10 +95,10 @@ class MigrateLegacyData extends Command
                     'email' => $newUser->email,
                     'phone' => '0000000000',
                     'address' => 'Dirección migrada',
-                    'birth_date' => '2000-01-01',
+                    'birth_date' => $oldUser->employee_properties['birthdate'] ?? '2000-01-01',
                     'hired_at' => $oldUser->created_at,
-                    'base_salary' => 1200,
-                    'is_active' => true,
+                    'base_salary' => 250,
+                    'is_active' => $oldUser->is_active ?? true,
                     'created_at' => $oldUser->created_at,
                     'updated_at' => $oldUser->updated_at,
                 ]);
@@ -111,17 +111,15 @@ class MigrateLegacyData extends Command
     {
         $this->line('Migrando Productos e Inventarios...');
         
-        // 1. Crear Ubicación fija: Cocina
         $locCocina = Location::firstOrCreate(
             ['slug' => 'cocina'],
             ['name' => 'Cocina', 'is_sales_point' => false]
         );
         $this->info(" -> Ubicación creada/encontrada: Cocina (ID: {$locCocina->id})");
 
-        // Nota: La ubicación 'Carrito' se creará dinámicamente más abajo basada en la tabla 'carts'
-
+        // 1. MIGRAR PRODUCTOS DE VENTA (products V1)
         $oldProducts = DB::connection('mysql_old')->table('products')->get();
-        $productMap = []; // Para mapear ID Viejo => ID Nuevo
+        $productMap = []; 
 
         foreach ($oldProducts as $oldProd) {
             $latestPriceRow = DB::connection('mysql_old')->table('prices')
@@ -142,9 +140,34 @@ class MigrateLegacyData extends Command
                 ]
             );
             
-            // Guardamos la referencia del ID viejo al nuevo
             $productMap[$oldProd->id] = $product->id;
         }
+
+        // 2. MIGRAR CONSUMIBLES (consumables V1) - NUEVO
+        // Se registran como productos sin precio y se asignan a Cocina
+        $this->line('   -> Migrando Consumibles...');
+        $oldConsumables = DB::connection('mysql_old')->table('consumables')->get();
+        
+        foreach ($oldConsumables as $oldCons) {
+            $code = $oldCons->code ?? 'CONS-' . $oldCons->id;
+            
+            // Creamos/Actualizamos el producto
+            $consumableProduct = Product::updateOrCreate(
+                ['name' => $oldCons->name],
+                [
+                    'barcode' => $code,
+                    'description' => $oldCons->notes ?? 'Consumible migrado',
+                    'price' => 0, // Precio 0 porque es insumo
+                ]
+            );
+
+            // Registramos en el inventario de Cocina (Stock inicial 0, ya que tabla consumables no tiene stock)
+            Inventory::updateOrCreate(
+                ['product_id' => $consumableProduct->id, 'location_id' => $locCocina->id],
+                ['quantity' => 0] 
+            );
+        }
+        $this->info("   -> " . $oldConsumables->count() . " consumibles migrados a Cocina.");
         
         // Item legado
         Product::firstOrCreate(
@@ -152,10 +175,7 @@ class MigrateLegacyData extends Command
             ['name' => 'Item Migrado (Histórico)', 'price' => 0]
         );
 
-        // --- MIGRACIÓN DE INVENTARIOS ---
-
-        // A) Inventario de COCINA (desde tabla 'warehouses')
-        // Corrección aplicada: Se busca 'Cocina 1'
+        // 3. MIGRAR INVENTARIOS DE PRODUCTOS V1 (Warehouses)
         $cocinaWarehouse = DB::connection('mysql_old')->table('warehouses')->where('name', 'Cocina 1')->first();
         
         if ($cocinaWarehouse && !empty($cocinaWarehouse->products)) {
@@ -172,11 +192,11 @@ class MigrateLegacyData extends Command
                         $countCocina++;
                     }
                 }
-                $this->info(" -> Inventario Cocina migrado: $countCocina productos.");
+                $this->info(" -> Inventario Cocina (Productos de venta): $countCocina items procesados.");
             }
         }
 
-        // B) Inventario de CARRITOS (desde tabla 'carts')
+        // 4. MIGRAR CARRITOS (Carts)
         $carts = DB::connection('mysql_old')->table('carts')->get();
         $this->info(" -> Encontrados " . $carts->count() . " registros en tabla 'carts'. Procesando...");
 
@@ -216,7 +236,7 @@ class MigrateLegacyData extends Command
             }
         }
 
-        $this->info('Productos e Inventarios (Cocina y Carritos) migrados correctamente.');
+        $this->info('Productos, Consumibles e Inventarios migrados correctamente.');
     }
 
     private function migrateOperationsAndSales()
@@ -313,6 +333,64 @@ class MigrateLegacyData extends Command
         $this->info('Ventas migradas.');
     }
 
+    /**
+     * Nueva lógica para migrar la tabla sale_to_employees
+     */
+    private function migrateEmployeeSales()
+    {
+        $this->info('Migrando Ventas a Empleados...');
+
+        // Obtenemos los registros de la tabla vieja
+        $oldEmployeeSales = DB::connection('mysql_old')->table('sale_to_employees')->get();
+        $count = 0;
+
+        foreach ($oldEmployeeSales as $oldSale) {
+            // 1. Determinar fecha para asignar operación diaria
+            $saleDate = Carbon::parse($oldSale->created_at);
+            
+            // Buscamos o creamos una operación para ese día (para mantener integridad referencial)
+            // Asumimos que si no existe, fue una operación cerrada con 0 efectivo inicial
+            $operation = DailyOperation::firstOrCreate(
+                ['date' => $saleDate->toDateString()],
+                [
+                    'cash_start' => 0,
+                    'cash_end' => 0,
+                    'is_closed' => true,
+                    'notes' => 'Generado automáticamente por migración (Ventas Empleado)'
+                ]
+            );
+
+            // 2. Crear la cabecera de la Venta (Sale)
+            // La tabla antigua tiene precio unitario y cantidad.
+            $total = $oldSale->quantity * $oldSale->price;
+
+            $newSale = Sale::create([
+                'daily_operation_id' => $operation->id,
+                'user_id' => $oldSale->user_id, // Asumimos que los IDs de usuario se mantienen o ya se migraron
+                'payment_method' => 'cash', // O 'payroll_deduction' si tienes ese método
+                'total' => $total,
+                'is_employee_sale' => true, // <--- LA BANDERA IMPORTANTE
+                'created_at' => $oldSale->created_at,
+                'updated_at' => $oldSale->updated_at,
+            ]);
+
+            // 3. Crear el detalle de la venta (SaleDetail)
+            SaleDetail::create([
+                'sale_id' => $newSale->id,
+                'product_id' => $oldSale->product_id,
+                'quantity' => $oldSale->quantity,
+                'unit_price' => $oldSale->price,
+                'subtotal' => $total,
+                'created_at' => $oldSale->created_at,
+                'updated_at' => $oldSale->updated_at,
+            ]);
+
+            $count++;
+        }
+
+        $this->info(" -> $count ventas a empleados migradas correctamente.");
+    }
+
     private function migrateExpenses()
     {
         $this->line('Migrando Gastos...');
@@ -344,8 +422,7 @@ class MigrateLegacyData extends Command
 
             Expense::create([
                 'concept' => $finalConcept,
-                'description' => $outcome->description ?? ($finalConcept . ' (Migrado)'), 
-                'amount' => $outcome->quantity ?? $outcome->amount ?? 0, 
+                'amount' => $outcome->cost ?? 0, 
                 'date' => $outcome->created_at,
                 'user_id' => $userId,
                 'created_at' => $outcome->created_at,
@@ -359,12 +436,10 @@ class MigrateLegacyData extends Command
     {
         $this->line('Migrando Días Festivos y Bonos...');
 
-        // 1. BONOS
         $oldBonuses = DB::connection('mysql_old')->table('bonuses')->get();
         foreach ($oldBonuses as $oldBonus) {
             Bonus::create([
                 'name' => $oldBonus->name,
-                'description' => $oldBonus->description ?? null,
                 'amount' => $oldBonus->amount ?? 0,
                 'type' => 'fixed',
                 'rule_config' => null,
@@ -375,24 +450,18 @@ class MigrateLegacyData extends Command
         }
         $this->info(" -> " . $oldBonuses->count() . " bonos migrados.");
 
-        // 2. DÍAS FESTIVOS
-        // CORRECCIÓN: Parseo de fecha formato 'd-m' (01-01) a 'Y-m-d'
         $oldHolidays = DB::connection('mysql_old')->table('holidays')->get();
         foreach ($oldHolidays as $oldHoliday) {
             
             try {
-                // Carbon parseará '01-01' usando el año actual automáticamente
-                // El formato 'd-m' indica Dia-Mes
                 $dateObject = Carbon::createFromFormat('d-m', $oldHoliday->date);
             } catch (\Exception $e) {
-                // Fallback: Si no es d-m, quizás es texto o d/m. Usamos fecha actual como seguridad.
                 $this->warn(" -> Error parseando fecha '{$oldHoliday->date}'. Usando fecha actual.");
                 $dateObject = now();
             }
 
             Holiday::create([
                 'name' => $oldHoliday->name,
-                // Formateamos a Y-m-d para que MySQL V2 lo acepte
                 'date' => $dateObject->format('Y-m-d'), 
                 'mandatory_rest' => 1,
                 'pay_multiplier' => 2.0,

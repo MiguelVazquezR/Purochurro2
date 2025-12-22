@@ -81,6 +81,7 @@ class PosController extends Controller
         $validated = $request->validate([
             'location_id' => 'required|exists:locations,id',
             'payment_method' => 'required|string|in:cash,card,transfer',
+            'is_employee_sale' => 'boolean', // Nueva validación para la bandera
             'items' => 'required|array|min:1',
             'items.*.product_id' => 'required|exists:products,id',
             'items.*.quantity' => 'required|integer|min:1',
@@ -96,11 +97,13 @@ class PosController extends Controller
                 $totalSale += $item['quantity'] * $item['price'];
             }
 
+            // Crear la venta con la bandera de empleado
             $sale = Sale::create([
                 'daily_operation_id' => $operation->id,
                 'user_id' => auth()->id(),
                 'payment_method' => $validated['payment_method'],
-                'total' => $totalSale
+                'total' => $totalSale,
+                'is_employee_sale' => $request->boolean('is_employee_sale') // Guardamos la bandera
             ]);
 
             foreach ($validated['items'] as $item) {

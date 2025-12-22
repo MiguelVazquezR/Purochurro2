@@ -14,6 +14,7 @@ class Sale extends Model
         'user_id',
         'total',
         'payment_method',
+        'is_employee_sale',
         'created_at',
     ];
 

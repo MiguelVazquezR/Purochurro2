@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Sale;
 use App\Models\DailyOperation;
+use App\Models\Product;
 use App\Models\WorkSchedule;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -13,12 +13,13 @@ class SaleController extends Controller
     /**
      * Historial de Operaciones (Resumen por Día)
      */
-     public function index(Request $request)
+    public function index(Request $request)
     {
+        // Optimizamos la consulta cargando solo lo necesario
         $query = DailyOperation::query()
-            ->with(['staff.user', 'sales']); // Cargar user para la foto en caso de fallback
+            ->with(['sales']); 
 
-        // CORRECCIÓN: Validamos que 'date' tenga valor antes de filtrar
+        // Filtro por fecha robusto
         if ($request->filled('date')) {
             $query->whereDate('date', $request->date);
         }
@@ -27,36 +28,49 @@ class SaleController extends Controller
             ->paginate(10)
             ->withQueryString()
             ->through(function ($day) {
-                $totalSales = $day->sales->sum('total');
+                // --- LÓGICA DE SEPARACIÓN DE VENTAS ---
+                // Usamos la colección en memoria (ya cargada con eager loading) 
+                // para no hacer N+1 queries a la base de datos.
                 
+                $totalPublic = $day->sales->where('is_employee_sale', false)->sum('total');
+                $totalEmployee = $day->sales->where('is_employee_sale', true)->sum('total');
+                $grandTotal = $totalPublic + $totalEmployee;
+
                 // --- LÓGICA DE PERSONAL EN TURNO (Basada en Horarios) ---
                 $dateStr = $day->date->format('Y-m-d');
-                
-                // Cargamos 'employee.user' para acceder eficientemente a profile_photo_url
+
+                // Cargamos schedules para este día específico
                 $schedules = WorkSchedule::with(['employee.user', 'shift'])
                     ->whereDate('date', $dateStr)
                     ->get();
-                
+
                 $staffList = $schedules->map(function ($schedule) {
                     $emp = $schedule->employee;
+                    // Validación de seguridad por si employee o user son null (soft deletes)
+                    if (!$emp) return null; 
+                    
                     return [
                         'id' => $emp->id,
                         'name' => $emp->full_name,
-                        'initials' => substr($emp->first_name, 0, 1) . substr($emp->last_name, 0, 1),
-                        'photo' => $emp->profile_photo_url, // Agregamos la URL de la foto
+                        // Generamos iniciales de forma segura
+                        'initials' => substr($emp->first_name ?? 'X', 0, 1) . substr($emp->last_name ?? 'X', 0, 1),
+                        'photo' => $emp->profile_photo_url ?? null, // URL de Jetstream/Laravel
                         'shift_color' => $schedule->shift ? $schedule->shift->color : '#9ca3af',
                         'shift_name' => $schedule->shift ? $schedule->shift->name : 'Sin turno'
                     ];
-                });
+                })->filter(); // Eliminamos nulos
 
-                // Fallback: Si no hay horarios, usar asignación manual de DailyOperation
+                // Fallback: Si no hay horarios registrados, intentamos usar la relación manual (Legacy)
                 if ($staffList->isEmpty()) {
+                    // Nota: Esto asume que tienes la relación 'staff' definida en DailyOperation
+                    // Si no la tienes cargada en el ->with() inicial, esto provocaría una lazy query,
+                    // pero es aceptable en un fallback poco común.
                     $staffList = $day->staff->map(function ($emp) {
                         return [
                             'id' => $emp->id,
                             'name' => $emp->full_name,
                             'initials' => substr($emp->first_name, 0, 1) . substr($emp->last_name, 0, 1),
-                            'photo' => $emp->profile_photo_url, // Agregamos la URL de la foto
+                            'photo' => $emp->profile_photo_url,
                             'shift_color' => '#e5e7eb',
                             'shift_name' => 'Asignación manual'
                         ];
@@ -67,11 +81,11 @@ class SaleController extends Controller
                     'id' => $day->id,
                     'date' => $day->date,
                     'is_closed' => $day->is_closed,
-                    'staff_list' => $staffList->take(4), // Mostramos máx 4 avatares
+                    'staff_list' => $staffList->take(4)->values(), // Re-indexamos array y limitamos a 4
                     'staff_count' => $staffList->count(),
-                    'total_public' => $totalSales,
-                    'total_employee' => 0,
-                    'grand_total' => $totalSales,
+                    'total_public' => $totalPublic,     // Ahora sí lleva el dato real
+                    'total_employee' => $totalEmployee, // Ahora sí lleva el dato real
+                    'grand_total' => $grandTotal,
                 ];
             });
 
@@ -82,34 +96,29 @@ class SaleController extends Controller
     }
 
     /**
-     * Detalle del Día (Listado de ventas de una operación)
+     * Detalle del Día
      */
     public function show(DailyOperation $dailyOperation)
     {
-        // 1. Cargar ventas y sus detalles
         $dailyOperation->load([
             'sales.user',
             'sales.details.product'
         ]);
 
-        // 2. OBTENER STAFF BASADO EN HORARIOS (WorkSchedule)
-        // En lugar de confiar en $dailyOperation->staff, buscamos quiénes tenían turno este día.
         $date = $dailyOperation->date->format('Y-m-d');
 
         $schedules = WorkSchedule::with(['employee.user', 'shift'])
             ->whereDate('date', $date)
             ->get();
 
-        // Transformamos estos horarios en una lista de empleados con su turno incrustado
-        // para que la vista (Show.vue) pueda iterarlos fácilmente.
         $staffFromSchedule = $schedules->map(function ($schedule) {
             $employee = $schedule->employee;
-            // Inyectamos el turno actual en una propiedad virtual para la vista
-            $employee->current_shift = $schedule->shift;
+            if($employee) {
+                $employee->current_shift = $schedule->shift;
+            }
             return $employee;
-        });
+        })->filter();
 
-        // Si no hay horarios, intentamos usar la relación 'staff' original como fallback
         if ($staffFromSchedule->isEmpty()) {
             $dailyOperation->load(['staff.workSchedules' => function ($q) use ($date) {
                 $q->whereDate('date', $date)->with('shift');
@@ -120,40 +129,49 @@ class SaleController extends Controller
             });
         }
 
+        $totalSales = $dailyOperation->sales()->sum('total');
+        
+        // Cálculo de comisiones (Refactorizado para seguridad si producto 1 no existe)
+        $refProduct = Product::find(1);
+        $commissionBase = 0;
+        
+        if ($refProduct && $refProduct->price > 0) {
+            // Fórmula: (Total / (PrecioRef * 10)) / 10 -> Redondeo a decenas
+            $commissionBase = floor(($totalSales / ($refProduct->price * 10)) / 10) * 10;
+        }
+
         return Inertia::render('Sale/Show', [
             'operation' => $dailyOperation,
-            // Pasamos la lista de empleados calculada manualmente
-            'scheduledStaff' => $staffFromSchedule,
+            'scheduledStaff' => $staffFromSchedule->values(),
             'sales' => $dailyOperation->sales->sortByDesc('created_at')->values(),
-            'totalSales' => $dailyOperation->sales->sum('total')
+            'totalSales' => $totalSales,
+            'commissionBase' => $commissionBase
         ]);
     }
 
     /**
-     * Cerrar la operación diaria (Corte de Caja)
+     * Cerrar la operación diaria
      */
     public function close(Request $request, DailyOperation $dailyOperation)
     {
-        // Validamos que se ingrese el efectivo contado
         $validated = $request->validate([
             'cash_end' => 'required|numeric|min:0',
             'notes' => 'nullable|string'
         ]);
 
-        // 1. Calcular Totales y Comisión
         $totalSales = $dailyOperation->sales()->sum('total');
-        // Fórmula: (Total / 320) -> Bajado a la decena inferior
-        $commissionBase = floor(($totalSales / 320) / 10) * 10;
+        
+        $refProduct = Product::find(1);
+        $commissionBase = 0;
+        if ($refProduct && $refProduct->price > 0) {
+            $commissionBase = floor(($totalSales / ($refProduct->price * 10)) / 10) * 10;
+        }
 
-        // 2. Calcular Balance de Caja (Diferencias)
-        // Convertimos a float para asegurar cálculos matemáticos precisos
         $cashStart = floatval($dailyOperation->cash_start);
         $cashEndReal = floatval($validated['cash_end']);
-
         $expectedCash = $cashStart + $totalSales;
         $difference = $cashEndReal - $expectedCash;
 
-        // 3. Preparar Nota Final Estructurada
         $finalNote = $validated['notes'] ? trim($validated['notes']) . "\n" : "";
         $finalNote .= "\n--- RESUMEN DE CORTE ---";
         $finalNote .= "\nFondo inicial:   $" . number_format($cashStart, 2);
@@ -162,7 +180,6 @@ class SaleController extends Controller
         $finalNote .= "\nTotal esperado:  $" . number_format($expectedCash, 2);
         $finalNote .= "\nEfectivo real:   $" . number_format($cashEndReal, 2);
 
-        // Indicador visual en texto para la diferencia
         $diffSymbol = $difference > 0 ? "+" : "";
         $diffLabel = $difference == 0 ? "(Cuadrado)" : ($difference > 0 ? "(Sobrante)" : "(Faltante)");
 

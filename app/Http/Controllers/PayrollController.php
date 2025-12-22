@@ -287,7 +287,7 @@ class PayrollController extends Controller
             $calculation = $payrollService->calculate($employee, $start, $end);
             
             // --- CORRECCIÓN: Usar el desglose real calculado por el servicio ---
-            // El servicio ya calcula (ventas/3200)*10 por día, respetando las decenas cerradas.
+            // El servicio ya calcula (ventas/3300)*10 por día, respetando las decenas cerradas.
             $calculation['commissions_detail'] = $calculation['breakdown']['commissions'] ?? [];
             // -------------------------------------------------------------------
 
