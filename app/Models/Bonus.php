@@ -15,7 +15,8 @@ class Bonus extends Model
         'amount',
         'type', 
         'is_active',
-        'rule_config'
+        'rule_config',
+        'created_at',
     ];
 
     protected $casts = [

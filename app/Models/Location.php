@@ -9,7 +9,7 @@ class Location extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['name', 'slug', 'is_sales_point'];
+    protected $fillable = ['name', 'slug', 'is_sales_point', 'created_at'];
 
     protected $casts = [
         'is_sales_point' => 'boolean'

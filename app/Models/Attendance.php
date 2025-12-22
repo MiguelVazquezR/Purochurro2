@@ -22,6 +22,7 @@ class Attendance extends Model implements HasMedia
         'late_ignored',
         'admin_notes',
         'extra_hours',
+        'created_at',
     ];
 
     protected $casts = [

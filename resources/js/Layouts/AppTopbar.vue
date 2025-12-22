@@ -194,7 +194,7 @@ const toggleUserMenu = (event) => {
                     size="small"
                     rounded
                     @click="toggleAttendance"
-                    class="font-bold !hidden md:flex"
+                    class="font-bold !hidden md:!flex"
                     :class="buttonConfig.class"
                 />
                 <!-- Móvil solo ícono -->

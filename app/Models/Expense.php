@@ -14,7 +14,8 @@ class Expense extends Model
         'amount',
         'date',
         'notes',
-        'user_id'
+        'user_id',
+        'created_at',
     ];
 
     protected $casts = [

@@ -15,6 +15,7 @@ class WorkSchedule extends Model
         'date',
         'notes',
         'is_published',
+        'created_at',
     ];
 
     protected $casts = [

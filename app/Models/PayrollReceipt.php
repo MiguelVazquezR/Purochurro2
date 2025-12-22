@@ -19,6 +19,7 @@ class PayrollReceipt extends Model
         'total_bonuses',
         'breakdown_data',
         'paid_at',
+        'created_at',
     ];
 
     protected $casts = [

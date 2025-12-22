@@ -13,7 +13,8 @@ class Sale extends Model
         'daily_operation_id',
         'user_id',
         'total',
-        'payment_method'
+        'payment_method',
+        'created_at',
     ];
 
     public function details()

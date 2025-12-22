@@ -30,6 +30,7 @@ class Employee extends Model implements HasMedia
         'termination_date',
         'termination_reason',
         'termination_notes',
+        'created_at',
     ];
 
     protected $casts = [
@@ -135,7 +136,4 @@ class Employee extends Model implements HasMedia
             },
         );
     }
-
-    // NOTA: Se eliminaron registerMediaCollections y registerMediaConversions para 'avatar'
-    // ya que ahora la foto vive en el modelo User.
 }

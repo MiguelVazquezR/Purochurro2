@@ -19,7 +19,8 @@ class IncidentRequest extends Model
         'employee_reason',
         'admin_response',
         'processed_by',
-        'processed_at'
+        'processed_at',
+        'created_at',
     ];
 
     protected $casts = [

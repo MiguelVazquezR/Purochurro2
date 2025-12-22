@@ -9,7 +9,7 @@ class Category extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['name', 'color'];
+    protected $fillable = ['name', 'color', 'created_at'];
 
     // Relación inversa (opcional, pero útil si quieres ver qué productos tiene una categoría)
     public function products()

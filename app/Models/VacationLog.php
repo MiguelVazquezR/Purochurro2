@@ -17,6 +17,7 @@ class VacationLog extends Model
         'balance_before',
         'balance_after',
         'description',
+        'created_at',
     ];
 
     protected $casts = [

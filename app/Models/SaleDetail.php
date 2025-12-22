@@ -14,7 +14,8 @@ class SaleDetail extends Model
         'product_id',
         'quantity',
         'unit_price',
-        'subtotal'
+        'subtotal',
+        'created_at',
     ];
 
     public function product()

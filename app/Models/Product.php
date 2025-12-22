@@ -24,7 +24,8 @@ class Product extends Model implements HasMedia
         'cost',
         'is_sellable',
         'track_inventory',
-        'is_active'
+        'is_active',
+        'created_at',
     ];
 
     protected $casts = [

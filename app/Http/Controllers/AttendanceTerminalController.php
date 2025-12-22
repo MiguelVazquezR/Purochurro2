@@ -183,7 +183,7 @@ class AttendanceTerminalController extends Controller
             elseif ($attendance->check_out === null) {
                 // Evitar doble check inmediato (5 min)
                 $checkInTime = Carbon::parse($attendance->date->format('Y-m-d') . ' ' . $attendance->check_in);
-                if ($now->diffInMinutes($checkInTime) < 5) {
+                if ($checkInTime->diffInMinutes($now) < 5) {
                     return response()->json([
                         'status' => 'warning',
                         'message' => 'Entrada muy reciente. Espera para registrar salida.'
