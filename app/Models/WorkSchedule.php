@@ -1,0 +1,35 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+
+class WorkSchedule extends Model
+{
+    use HasFactory;
+
+    protected $fillable = [
+        'employee_id',
+        'shift_id',
+        'date',
+        'notes',
+        'is_published',
+        'created_at',
+    ];
+
+    protected $casts = [
+        'date' => 'date',
+        'is_published' => 'boolean',
+    ];
+
+    public function employee()
+    {
+        return $this->belongsTo(Employee::class);
+    }
+
+    public function shift()
+    {
+        return $this->belongsTo(Shift::class);
+    }
+}

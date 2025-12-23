@@ -4,6 +4,7 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Fortify\TwoFactorAuthenticatable;
@@ -29,6 +30,7 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'created_at',
     ];
 
     /**
@@ -63,5 +65,32 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    /**
+     * Relación: Un usuario puede registrar muchos gastos.
+     */
+    public function expenses(): HasMany
+    {
+        return $this->hasMany(Expense::class);
+    }
+
+    /**
+     * Relación: Registro de tutoriales completados por el usuario.
+     */
+    public function tutorials(): HasMany
+    {
+        return $this->hasMany(UserTutorial::class);
+    }
+
+    /**
+     * Helper para verificar si un módulo ya fue completado.
+     */
+    public function hasCompletedTutorial(string $moduleName): bool
+    {
+        return $this->tutorials()
+            ->where('module_name', $moduleName)
+            ->where('is_completed', true)
+            ->exists();
     }
 }
