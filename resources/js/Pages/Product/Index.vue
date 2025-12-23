@@ -1,20 +1,14 @@
 <script setup>
 import { ref } from 'vue';
-import { Head, Link, router } from '@inertiajs/vue3';
+import { Link, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { FilterMatchMode } from '@primevue/core/api';
 import { useConfirm } from "primevue/useconfirm";
 import { useToast } from "primevue/usetoast";
-import Button from 'primevue/button';
-import DataTable from 'primevue/datatable';
-import Column from 'primevue/column';
-import IconField from 'primevue/iconfield';
-import InputIcon from 'primevue/inputicon';
-import InputText from 'primevue/inputtext';
-import Tag from 'primevue/tag';
 
 const props = defineProps({
     products: Array,
+    locations: Array, // Recibimos las ubicaciones desde el controlador
 });
 
 const confirm = useConfirm();
@@ -33,15 +27,23 @@ const formatCurrency = (value) => {
     }).format(value);
 };
 
-const getStockSeverity = (product) => {
-    if (!product.track_inventory) return 'info';
-    const stock = product.stock || 0; 
-    if (stock === 0) return 'danger';
-    if (stock < 10) return 'warn';
+// Helper modificado para obtener stock específico por ubicación
+const getLocationStock = (product, locationId) => {
+    if (!product.track_inventory) return '∞';
+    return product.stocks && product.stocks[locationId] !== undefined 
+        ? product.stocks[locationId] 
+        : 0;
+};
+
+// Helper para severidad visual por ubicación
+const getStockSeverity = (quantity, trackInventory) => {
+    if (!trackInventory) return 'info';
+    if (quantity === 0) return 'danger';
+    if (quantity < 5) return 'warn';
     return 'success';
 };
 
-const getStockLabel = (product) => {
+const getGlobalStockLabel = (product) => {
     if (!product.track_inventory) return 'N/A';
     const stock = product.stock || 0;
     return stock === 0 ? 'Agotado' : `${stock} u.`;
@@ -80,11 +82,10 @@ const deleteProduct = (product) => {
             <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 class="text-3xl font-bold tracking-tight text-surface-900">Productos</h1>
-                    <p class="text-surface-500 text-sm mt-1">Gestiona tu catálogo, precios e inventario.</p>
+                    <p class="text-surface-500 text-sm mt-1">Gestiona tu catálogo, precios e inventario por almacén.</p>
                 </div>
                 
                 <div class="flex flex-wrap gap-3">
-                    <!-- Botones de Acceso Rápido a Inventario -->
                     <Link :href="route('stock-transfers.index')">
                         <Button 
                             label="Traspasos" 
@@ -181,7 +182,7 @@ const deleteProduct = (product) => {
                         </template>
                     </Column>
 
-                    <!-- Nombre y Código -->
+                    <!-- Nombre y Código (con desglose móvil) -->
                     <Column field="name" header="Producto" sortable class="min-w-[180px]">
                         <template #body="slotProps">
                             <div class="flex flex-col">
@@ -194,46 +195,63 @@ const deleteProduct = (product) => {
                                         Inactivo
                                     </span>
                                 </div>
+
+                                <!-- Vista Móvil: Desglose de Stock -->
+                                <div v-if="slotProps.data.track_inventory" class="md:hidden mt-2 grid grid-cols-2 gap-x-2 gap-y-1 bg-surface-50 p-2 rounded-lg border border-surface-100">
+                                    <div v-for="loc in locations" :key="loc.id" class="flex justify-between items-center text-xs">
+                                        <span class="text-surface-500 truncate mr-1 max-w-[80px]">{{ loc.name }}:</span>
+                                        <span :class="{
+                                            'font-bold': true,
+                                            'text-red-500': getLocationStock(slotProps.data, loc.id) <= 0,
+                                            'text-green-600': getLocationStock(slotProps.data, loc.id) > 0
+                                        }">
+                                            {{ getLocationStock(slotProps.data, loc.id) }}
+                                        </span>
+                                    </div>
+                                </div>
                             </div>
                         </template>
                     </Column>
 
-                    <!-- Stock -->
-                    <Column header="Stock" sortable field="stock" class="w-[120px] hidden md:table-cell">
+                    <!-- Stock Total (Columna Sumatoria) -->
+                    <Column header="Total" sortable field="stock" class="w-[90px] hidden md:table-cell">
+                        <template #body="slotProps">
+                            <div class="font-bold text-surface-700 text-center">
+                                {{ getGlobalStockLabel(slotProps.data) }}
+                            </div>
+                        </template>
+                    </Column>
+
+                    <!-- Columnas Dinámicas por Ubicación (Solo Desktop) -->
+                    <Column 
+                        v-for="loc in locations" 
+                        :key="loc.id" 
+                        :header="loc.name" 
+                        class="hidden md:table-cell min-w-[100px]"
+                    >
                         <template #body="slotProps">
                             <Tag 
-                                :value="getStockLabel(slotProps.data)" 
-                                :severity="getStockSeverity(slotProps.data)" 
+                                v-if="slotProps.data.track_inventory"
+                                :value="getLocationStock(slotProps.data, loc.id)" 
+                                :severity="getStockSeverity(getLocationStock(slotProps.data, loc.id), true)" 
                                 rounded
-                                class="!px-3 !py-1 !font-medium"
-                            >
-                                <template #icon>
-                                    <i v-if="!slotProps.data.track_inventory" class="pi pi-infinity text-xs mr-1"></i>
-                                    <i v-else-if="(slotProps.data.stock || 0) < 10" class="pi pi-exclamation-triangle text-xs mr-1"></i>
-                                </template>
-                            </Tag>
+                                class="!px-2 !py-0.5 !text-xs !font-medium"
+                            />
+                            <span v-else class="text-surface-400 text-xs">-</span>
                         </template>
                     </Column>
 
                     <!-- Precios -->
-                    <Column field="price" header="Precio" sortable class="w-[120px]">
+                    <Column field="price" header="Precio" sortable class="w-[110px]">
                         <template #body="slotProps">
-                            <span class="text-surface-900 font-semibold text-base">
+                            <span class="text-surface-900 font-semibold text-sm">
                                 {{ formatCurrency(slotProps.data.price) }}
                             </span>
                         </template>
                     </Column>
 
-                    <Column field="employee_price" header="P. Emp." sortable class="w-[120px] hidden lg:table-cell">
-                        <template #body="slotProps">
-                            <span class="text-surface-500 font-medium">
-                                {{ formatCurrency(slotProps.data.employee_price) }}
-                            </span>
-                        </template>
-                    </Column>
-
                     <!-- Acciones -->
-                    <Column header="" class="w-[100px] text-right">
+                    <Column header="" class="w-[80px] text-right">
                         <template #body="slotProps">
                             <div class="flex justify-end gap-1 action-btn">
                                 <Button 

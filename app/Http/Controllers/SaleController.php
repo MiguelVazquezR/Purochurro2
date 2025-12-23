@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Attendance;
 use App\Models\DailyOperation;
 use App\Models\Product;
 use App\Models\WorkSchedule;
@@ -13,7 +14,7 @@ class SaleController extends Controller
     /**
      * Historial de Operaciones (Resumen por Día)
      */
-    public function index(Request $request)
+   public function index(Request $request)
     {
         // Optimizamos la consulta cargando solo lo necesario
         $query = DailyOperation::query()
@@ -29,25 +30,31 @@ class SaleController extends Controller
             ->withQueryString()
             ->through(function ($day) {
                 // --- LÓGICA DE SEPARACIÓN DE VENTAS ---
-                // Usamos la colección en memoria (ya cargada con eager loading) 
-                // para no hacer N+1 queries a la base de datos.
-                
                 $totalPublic = $day->sales->where('is_employee_sale', false)->sum('total');
                 $totalEmployee = $day->sales->where('is_employee_sale', true)->sum('total');
                 $grandTotal = $totalPublic + $totalEmployee;
 
-                // --- LÓGICA DE PERSONAL EN TURNO (Basada en Horarios) ---
+                // --- LÓGICA DE PERSONAL EN TURNO (Basada en ASISTENCIA REAL) ---
                 $dateStr = $day->date->format('Y-m-d');
 
-                // Cargamos schedules para este día específico
-                $schedules = WorkSchedule::with(['employee.user', 'shift'])
+                // 1. Obtenemos quiénes realmente asistieron ese día
+                $attendances = Attendance::with('employee.user')
                     ->whereDate('date', $dateStr)
                     ->get();
+                
+                // 2. Cargamos horarios solo para obtener colores/nombres de turno (cosmético)
+                $schedules = WorkSchedule::with('shift')
+                    ->whereDate('date', $dateStr)
+                    ->get()
+                    ->keyBy('employee_id');
 
-                $staffList = $schedules->map(function ($schedule) {
-                    $emp = $schedule->employee;
-                    // Validación de seguridad por si employee o user son null (soft deletes)
+                $staffList = $attendances->map(function ($attendance) use ($schedules) {
+                    $emp = $attendance->employee;
+                    // Validación de seguridad por si employee o user son null
                     if (!$emp) return null; 
+                    
+                    // Intentamos buscar su horario programado para dar contexto visual
+                    $schedule = $schedules->get($emp->id);
                     
                     return [
                         'id' => $emp->id,
@@ -55,37 +62,21 @@ class SaleController extends Controller
                         // Generamos iniciales de forma segura
                         'initials' => substr($emp->first_name ?? 'X', 0, 1) . substr($emp->last_name ?? 'X', 0, 1),
                         'photo' => $emp->profile_photo_url ?? null, // URL de Jetstream/Laravel
-                        'shift_color' => $schedule->shift ? $schedule->shift->color : '#9ca3af',
-                        'shift_name' => $schedule->shift ? $schedule->shift->name : 'Sin turno'
+                        'shift_color' => $schedule && $schedule->shift ? $schedule->shift->color : '#9ca3af',
+                        'shift_name' => $schedule && $schedule->shift ? $schedule->shift->name : 'Asistencia registrada'
                     ];
                 })->filter(); // Eliminamos nulos
-
-                // Fallback: Si no hay horarios registrados, intentamos usar la relación manual (Legacy)
-                if ($staffList->isEmpty()) {
-                    // Nota: Esto asume que tienes la relación 'staff' definida en DailyOperation
-                    // Si no la tienes cargada en el ->with() inicial, esto provocaría una lazy query,
-                    // pero es aceptable en un fallback poco común.
-                    $staffList = $day->staff->map(function ($emp) {
-                        return [
-                            'id' => $emp->id,
-                            'name' => $emp->full_name,
-                            'initials' => substr($emp->first_name, 0, 1) . substr($emp->last_name, 0, 1),
-                            'photo' => $emp->profile_photo_url,
-                            'shift_color' => '#e5e7eb',
-                            'shift_name' => 'Asignación manual'
-                        ];
-                    });
-                }
 
                 return [
                     'id' => $day->id,
                     'date' => $day->date,
                     'is_closed' => $day->is_closed,
-                    'staff_list' => $staffList->take(4)->values(), // Re-indexamos array y limitamos a 4
+                    'staff_list' => $staffList->take(4)->values(), // Re-indexamos array y limitamos a 4 para vista previa
                     'staff_count' => $staffList->count(),
-                    'total_public' => $totalPublic,     // Ahora sí lleva el dato real
-                    'total_employee' => $totalEmployee, // Ahora sí lleva el dato real
+                    'total_public' => $totalPublic,
+                    'total_employee' => $totalEmployee,
                     'grand_total' => $grandTotal,
+                    'cash_end' => $day->cash_end, // <-- AGREGADO: Monto real del corte
                 ];
             });
 

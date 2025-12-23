@@ -26,6 +26,9 @@ const processingPayment = ref(false);
 const keypadInput = ref('0');
 const isEmployeeSale = ref(false);
 
+// --- ESTADO PARA CARRITO MÓVIL ---
+const showMobileCart = ref(false); // Controla la visibilidad del Drawer/Sidebar
+
 // Estado para controlar la carga inicial y la ejecución del tour
 const isLoadingTour = ref(false); 
 const isTourActive = ref(false); 
@@ -126,6 +129,8 @@ const canPay = computed(() => (parseFloat(keypadInput.value) || 0) >= cartTotal.
 
 const openPayment = () => {
     if (!cart.value.length) return toast.add({ severity: 'warn', summary: 'Carrito vacío', life: 2000 });
+    // Si estamos en móvil, cerramos el drawer para mostrar el modal de pago limpio
+    showMobileCart.value = false;
     keypadInput.value = '0';
     showPaymentModal.value = true;
 };
@@ -159,16 +164,10 @@ const formatCurrency = (val) => new Intl.NumberFormat('es-MX', { style: 'currenc
 
 // --- BLOQUEO DE INTERACCIÓN ROBUSTO ---
 const blockInteraction = (e) => {
-    // Si el tour no está activo, no hacemos nada
     if (!isTourActive.value) return;
-
-    // Permitimos clics DENTRO de la ventana del tutorial (driver-popover)
-    // Esto asegura que los botones "Siguiente", "Anterior", "Entendido" sigan funcionando
     if (e.target.closest && e.target.closest('.driver-popover')) {
         return;
     }
-
-    // Bloqueamos cualquier otra interacción
     e.preventDefault();
     e.stopPropagation();
     e.stopImmediatePropagation();
@@ -176,7 +175,6 @@ const blockInteraction = (e) => {
 
 const enableBlocking = () => {
     isTourActive.value = true;
-    // Agregamos listeners en fase de CAPTURA (true) para interceptar antes que nadie
     window.addEventListener('click', blockInteraction, true);
     window.addEventListener('mousedown', blockInteraction, true);
     window.addEventListener('touchstart', blockInteraction, true);
@@ -193,7 +191,7 @@ const disableBlocking = () => {
 
 // --- CONFIGURACIÓN DEL TOUR (ONBOARDING) ---
 const startTour = () => {
-    enableBlocking(); // ACTIVAR BLOQUEO
+    enableBlocking(); 
 
     const tourDriver = driver({
         showProgress: true,
@@ -244,7 +242,7 @@ const startTour = () => {
         onDestroyStarted: () => {
             markTourAsCompleted();
             tourDriver.destroy();
-            disableBlocking(); // DESACTIVAR BLOQUEO
+            disableBlocking(); 
         }
     });
 
@@ -264,7 +262,6 @@ onMounted(async () => {
         const response = await axios.get(route('tutorials.check', 'pos_terminal'));
         
         if (!response.data.completed) {
-            // Solo si NO está completado, activamos el loading y preparamos el tour
             isLoadingTour.value = true;
             setTimeout(() => {
                 isLoadingTour.value = false;
@@ -279,7 +276,6 @@ onMounted(async () => {
     }
 });
 
-// Limpieza de eventos por si el componente se desmonta abruptamente
 onBeforeUnmount(() => {
     disableBlocking();
 });
@@ -294,7 +290,7 @@ onBeforeUnmount(() => {
             <p class="mt-4 text-gray-500 font-medium animate-pulse">Preparando sistema...</p>
         </div>
 
-        <!-- Capa visual (opcional, para cambiar el cursor a default) -->
+        <!-- Capa visual tour -->
         <div v-if="isTourActive" class="fixed inset-0 z-[60] bg-transparent cursor-default"></div>
 
         <!-- Contenedor Principal -->
@@ -304,8 +300,8 @@ onBeforeUnmount(() => {
             :class="{ '!pointer-events-none select-none': isTourActive }"
         >
             
-            <!-- IZQUIERDA: Catálogo (7 columnas) -->
-            <div id="tour-products-section" class="md:col-span-7 flex flex-col bg-white border border-surface-200 rounded-[2rem] shadow-md overflow-hidden h-full relative">
+            <!-- IZQUIERDA: Catálogo (Ocupa 12 en móvil, 7 en desktop) -->
+            <div id="tour-products-section" class="col-span-1 md:col-span-7 flex flex-col bg-white border border-surface-200 rounded-[2rem] shadow-md overflow-hidden h-full relative">
                 <div class="px-6 py-5 border-b border-surface-100 flex justify-between items-center bg-white/80 backdrop-blur-md sticky top-0 z-10">
                     
                     <div class="flex items-center gap-4">
@@ -337,7 +333,7 @@ onBeforeUnmount(() => {
                             class="group bg-white border border-surface-100 rounded-2xl p-3 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.05)] hover:shadow-[0_8px_16px_-4px_rgba(99,102,241,0.15)] hover:border-indigo-200 transition-all duration-300 text-left flex flex-col gap-3 h-full relative overflow-hidden disabled:opacity-60 disabled:cursor-not-allowed"
                         >
                             <div class="aspect-square rounded-xl bg-gray-50 overflow-hidden relative w-full shadow-inner">
-                                <img v-if="product.image_url" :src="product.image_url" class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                                <img v-if="product.image_url" :src="product.image_url" class="h-full mx-auto object-contain group-hover:scale-110 transition-transform duration-500" />
                                 <div v-else class="w-full h-full flex items-center justify-center text-gray-300"><i class="pi pi-image !text-3xl opacity-50"></i></div>
                                 
                                 <span 
@@ -366,12 +362,11 @@ onBeforeUnmount(() => {
                         </button>
                     </div>
                 </div>
-                <div class="absolute bottom-0 left-0 w-full h-12 bg-gradient-to-t from-white to-transparent pointer-events-none"></div>
             </div>
 
-            <!-- DERECHA: Carrito (5 columnas) -->
-            <div class="md:col-span-5 flex flex-col bg-white border border-surface-200 rounded-[2rem] shadow-md overflow-hidden h-full relative z-20">
-                
+            <!-- DERECHA (Escritorio): Carrito (Oculto en Móvil) -->
+            <div class="hidden md:flex md:mt-0 md:col-span-5 flex-col bg-white border border-surface-200 rounded-[2rem] shadow-md overflow-hidden h-full relative z-20">
+                <!-- CABECERA CARRITO -->
                 <div class="px-4 py-5 border-b border-surface-100 flex justify-between items-center bg-gray-50/80 backdrop-blur-sm">
                     <h3 class="font-black text-base text-gray-800 flex items-center gap-2">
                         <span class="size-7 flex items-center justify-center bg-indigo-100 text-indigo-600 rounded-full">
@@ -406,6 +401,7 @@ onBeforeUnmount(() => {
                     </div>
                 </div>
 
+                <!-- LISTA ITEMS -->
                 <div class="flex-1 overflow-y-auto p-4 space-y-3 bg-white">
                     <div v-if="!cart.length" class="h-full flex flex-col items-center justify-center text-gray-300 gap-4">
                         <div class="w-24 h-24 bg-gray-50 rounded-full flex items-center justify-center mb-2">
@@ -424,7 +420,7 @@ onBeforeUnmount(() => {
                         class="flex gap-3 bg-white p-2.5 rounded-2xl border border-gray-100 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.03)] items-center"
                     >
                         <div class="size-12 rounded-xl bg-gray-50 overflow-hidden flex-shrink-0 border border-gray-100 self-center">
-                            <img v-if="item.image" :src="item.image" class="w-full h-full object-cover" />
+                            <img v-if="item.image" :src="item.image" class="w-full h-full object-contain" />
                             <div v-else class="w-full h-full flex items-center justify-center"><i class="pi pi-image text-gray-300 text-lg"></i></div>
                         </div>
 
@@ -455,6 +451,7 @@ onBeforeUnmount(() => {
                     </div>
                 </div>
 
+                <!-- FOOTER TOTAL -->
                 <div id="tour-checkout-section" class="p-5 bg-gray-50 border-t border-surface-200 z-20">
                     <div class="flex justify-between items-end mb-4">
                         <div class="text-gray-500 text-sm font-medium flex flex-col">
@@ -479,7 +476,102 @@ onBeforeUnmount(() => {
             </div>
         </div>
 
-        <!-- MODAL COBRO -->
+        <!-- === MÓVIL: BOTÓN FLOTANTE PARA VER CARRITO === -->
+        <div class="fixed bottom-4 left-4 right-4 md:hidden z-50">
+            <button 
+                @click="showMobileCart = true"
+                class="w-full bg-indigo-900 text-white rounded-full py-4 px-6 shadow-2xl flex items-center justify-between active:scale-95 transition-all border border-indigo-700"
+            >
+                <div class="flex items-center gap-3">
+                    <div class="bg-indigo-700 size-8 rounded-full flex items-center justify-center font-bold text-sm">
+                        {{ cartCount }}
+                    </div>
+                    <span class="font-bold text-lg">Ver Orden</span>
+                </div>
+                <span class="font-black text-xl">{{ formatCurrency(cartTotal) }}</span>
+            </button>
+        </div>
+
+        <!-- === MÓVIL: SIDEBAR / DRAWER DEL CARRITO === -->
+        <Drawer v-model:visible="showMobileCart" position="right" class="!w-full sm:!w-[28rem] !border-l !border-gray-200" :pt="{ header: { class: '!hidden' }, content: { class: '!p-0' } }">
+            <div class="flex flex-col h-full bg-white">
+                <!-- Header Móvil -->
+                <div class="px-5 py-4 border-b border-gray-100 flex justify-between items-center bg-white sticky top-0 z-10">
+                    <h3 class="font-black text-xl text-gray-800">Tu Orden</h3>
+                    <Button icon="pi pi-times" text rounded severity="secondary" @click="showMobileCart = false" />
+                </div>
+
+                <!-- Toggle Empleado Móvil -->
+                <div class="px-5 py-2 bg-gray-50 flex justify-between items-center border-b border-gray-100">
+                    <span class="text-sm font-bold text-gray-500">¿Venta a Empleado?</span>
+                    <ToggleButton 
+                        v-model="isEmployeeSale" 
+                        onLabel="SÍ" 
+                        offLabel="NO" 
+                        onIcon="pi pi-check" 
+                        offIcon="pi pi-times"
+                        class="w-20 h-8 !text-xs"
+                    />
+                </div>
+
+                <!-- Lista Items Móvil -->
+                <div class="flex-1 overflow-y-auto p-5 space-y-4">
+                    <div v-if="!cart.length" class="flex flex-col items-center justify-center h-64 text-gray-400">
+                        <i class="pi pi-shopping-cart text-5xl mb-3 opacity-30"></i>
+                        <p>Carrito vacío</p>
+                    </div>
+
+                    <div 
+                        v-for="(item, idx) in cart" 
+                        :key="idx" 
+                        class="flex gap-4 items-start"
+                    >
+                        <div class="size-16 rounded-xl bg-gray-50 overflow-hidden flex-shrink-0 border border-gray-100">
+                            <img v-if="item.image" :src="item.image" class="w-full h-full object-contain" />
+                            <div v-else class="w-full h-full flex items-center justify-center"><i class="pi pi-image text-gray-300"></i></div>
+                        </div>
+
+                        <div class="flex-1 min-w-0">
+                            <div class="flex justify-between items-start mb-1">
+                                <p class="font-bold text-gray-800 text-base leading-tight">{{ item.name }}</p>
+                                <p class="font-bold text-indigo-600">{{ formatCurrency(item.price * item.quantity) }}</p>
+                            </div>
+                            
+                            <div class="flex items-center justify-between mt-2">
+                                <div class="flex items-center bg-gray-100 rounded-lg h-9">
+                                    <button @click="updateQty(idx, -1)" class="w-9 h-full flex items-center justify-center text-gray-500 hover:text-red-500 rounded-l-lg active:bg-gray-200"><i class="pi pi-minus text-xs"></i></button>
+                                    <span class="w-6 text-center text-sm font-bold text-gray-800">{{ item.quantity }}</span>
+                                    <button @click="updateQty(idx, 1)" class="w-9 h-full flex items-center justify-center text-gray-500 hover:text-green-600 rounded-r-lg active:bg-gray-200"><i class="pi pi-plus text-xs"></i></button>
+                                </div>
+                                
+                                <button @click="removeFromCart(idx)" class="text-red-500 hover:bg-red-50 p-2 rounded-full transition-colors">
+                                    <i class="pi pi-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Footer Cobro Móvil -->
+                <div class="p-5 border-t border-gray-100 bg-gray-50 sticky bottom-0 z-10">
+                    <div class="flex justify-between items-end mb-4">
+                        <span class="text-gray-500 font-medium">Total a pagar</span>
+                        <span class="text-3xl font-black text-gray-900">{{ formatCurrency(cartTotal) }}</span>
+                    </div>
+                    <button 
+                        @click="openPayment" 
+                        class="w-full py-4 rounded-xl font-bold text-xl text-white shadow-lg shadow-indigo-200 transition-all flex justify-center items-center gap-3 active:scale-[0.98]"
+                        :class="cart.length ? 'bg-indigo-600' : 'bg-gray-300 cursor-not-allowed'"
+                        :disabled="!cart.length"
+                    >
+                        <span>Ir a Pagar</span>
+                        <i class="pi pi-arrow-right"></i>
+                    </button>
+                </div>
+            </div>
+        </Drawer>
+
+        <!-- MODAL COBRO (Mismo) -->
         <Dialog v-model:visible="showPaymentModal" modal :style="{ width: '700px' }" class="!rounded-[2rem] overflow-hidden" :pt="{ header: { class: '!hidden' }, content: { class: '!p-0' } }">
             <div class="flex flex-col md:flex-row h-[500px] md:h-auto">
                 <!-- Columna Izquierda: Información de la Venta -->

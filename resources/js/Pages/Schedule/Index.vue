@@ -1,13 +1,12 @@
 <script setup>
 import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
-import { Head, router } from '@inertiajs/vue3';
+import { router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { format, addDays, parseISO, isSameDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useToast } from "primevue/usetoast";
 import { useConfirm } from "primevue/useconfirm";
 import axios from 'axios';
-import ProgressSpinner from 'primevue/progressspinner';
 
 // --- IMPORTAR DRIVER.JS PARA EL TOUR ---
 import { driver } from "driver.js";
@@ -314,7 +313,7 @@ onBeforeUnmount(() => {
                             v-tooltip.top="'Semana anterior'"
                         />
                         <div class="px-4 flex flex-col items-center min-w-[140px] sm:min-w-[160px]">
-                            <span class="text-xs text-surface-400 font-medium uppercase tracking-wider">Semana Actual</span>
+                            <span class="text-xs text-surface-400 font-medium uppercase tracking-wider">Semana actual</span>
                             <span class="text-sm font-bold text-surface-700 whitespace-nowrap">
                                 {{ format(parseISO(weekStart), 'd MMM', { locale: es }) }} - {{ format(parseISO(weekEnd), 'd MMM', { locale: es }) }}
                             </span>
@@ -394,27 +393,34 @@ onBeforeUnmount(() => {
                                 
                                 <!-- Columna Empleado (Sticky) -->
                                 <td class="p-2 sm:p-4 sticky left-0 bg-white/95 backdrop-blur-md group-hover:bg-surface-50/95 z-10 border-r border-surface-200 shadow-[4px_0_10px_-4px_rgba(0,0,0,0.05)]">
-                                    <div class="flex items-center gap-3 justify-center sm:justify-start">
+                                    <div class="flex flex-col sm:flex-row items-center gap-1 sm:gap-3 justify-center sm:justify-start">
                                         <!-- Avatar -->
                                         <div class="relative flex-shrink-0">
-                                            <div class="w-10 h-10 rounded-full bg-surface-100 border border-surface-200 flex items-center justify-center overflow-hidden text-surface-400">
-                                                <img v-if="employee.media && employee.media.length" 
-                                                    :src="employee.media[0].original_url" 
+                                            <div class="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-surface-100 border border-surface-200 flex items-center justify-center overflow-hidden text-surface-400">
+                                                <img 
+                                                    :src="employee.profile_photo_url" 
                                                     class="w-full h-full object-cover" 
-                                                    alt="Avatar" />
-                                                <i v-else class="pi pi-user !text-lg"></i>
+                                                    alt="Avatar" 
+                                                />
                                             </div>
                                             <!-- Indicador Activo -->
-                                            <div class="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-green-500 border-2 border-white rounded-full hidden sm:block" title="Activo"></div>
+                                            <!-- <div class="absolute -bottom-1 -right-1 w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 bg-green-500 border-2 border-white rounded-full" title="Activo"></div> -->
                                         </div>
                                         
-                                        <!-- Info (Oculta en móvil para ahorrar espacio) -->
-                                        <div class="lg:flex flex-col hidden sm:flex min-w-0">
+                                        <!-- Info Desktop (Nombre completo + Puesto) -->
+                                        <div class="hidden sm:flex flex-col min-w-0">
                                             <span class="font-bold text-surface-800 text-sm truncate max-w-[140px] leading-tight">
-                                                {{ employee.user?.name || 'Sin Asignar' }}
+                                                {{ employee.first_name }} {{ employee.last_name }}
                                             </span>
                                             <span class="text-xs text-surface-500 truncate max-w-[140px]">
                                                 {{ employee.job_title || 'Colaborador' }}
+                                            </span>
+                                        </div>
+
+                                        <!-- Info Móvil (Solo Primer Nombre) -->
+                                        <div class="sm:hidden flex flex-col items-center">
+                                            <span class="font-bold text-surface-700 text-[10px] leading-tight truncate max-w-[60px] text-center">
+                                                {{ employee.first_name }}
                                             </span>
                                         </div>
                                     </div>
@@ -495,9 +501,8 @@ onBeforeUnmount(() => {
         <!-- Popover selector de turnos -->
         <Popover ref="op" id="overlay_panel" class="!w-64 !p-0 !border-0 !shadow-xl !rounded-xl overflow-hidden">
             <div class="flex flex-col">
-                <div class="p-3 bg-surface-50 border-b border-surface-100 flex items-center justify-between">
+                <div class="p-3 flex items-center justify-center bg-surface-50 border-b border-surface-100">
                     <span class="text-xs font-semibold text-surface-500 uppercase tracking-wider">Seleccionar Turno</span>
-                    <i class="pi pi-clock text-surface-400 text-sm"></i>
                 </div>
                 
                 <div class="max-h-[300px] overflow-y-auto">

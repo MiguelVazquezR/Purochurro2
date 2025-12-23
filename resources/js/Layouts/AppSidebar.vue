@@ -40,7 +40,7 @@ const menuItems = computed(() => {
         },
         { label: 'Gastos', route: 'expenses.index', icon: 'pi pi-dollar', visible: isAdmin.value },
         { label: 'Ventas', route: 'sales.index', icon: 'pi pi-chart-line', visible: isAdmin.value },
-        { label: 'Productos', route: 'products.index', icon: 'pi pi-box', visible: isAdmin.value },
+        { label: 'Productos', route: 'products.index', icon: 'pi pi-box', visible: true },
         { label: 'Permisos', route: 'incident-requests.index', icon: 'pi pi-id-card', visible: true },
     ];
 

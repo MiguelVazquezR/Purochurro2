@@ -179,6 +179,7 @@ class EmployeeController extends Controller
             'email' => 'required|email|unique:employees,email,' . $employee->id,
             'password' => 'nullable|string|min:8',
             'photo' => 'nullable|image|max:10240', // Validación foto update
+            'remove_photo' => 'nullable|boolean',   // NUEVO: Bandera para eliminar foto
             'recurring_bonuses' => 'nullable|array',
             'recurring_bonuses.*' => 'exists:bonuses,id',
             'is_active' => 'boolean',
@@ -203,14 +204,31 @@ class EmployeeController extends Controller
 
                 $employee->user->update($userData);
 
-                // --- ACTUALIZACIÓN DE FOTO Y REKOGNITION ---
-                if ($request->hasFile('photo')) {
+                // --- GESTIÓN DE FOTO DE PERFIL Y REKOGNITION ---
+
+                // CASO 1: ELIMINAR FOTO (El usuario clickeó en la 'X' para quitarla)
+                if ($request->boolean('remove_photo')) {
+                    // 1. Eliminar de AWS
+                    if ($employee->aws_face_id) {
+                        $this->rekognition->deleteFace($employee->aws_face_id);
+                        $employee->aws_face_id = null;
+                        $employee->save();
+                    }
+                    
+                    // 2. Eliminar de User (Jetstream)
+                    $employee->user->deleteProfilePhoto();
+                }
+                
+                // CASO 2: ACTUALIZAR FOTO (El usuario subió una nueva)
+                // Nota: Si sube una nueva, remove_photo debería venir en false o ignorarse, 
+                // pero el reemplazo elimina la anterior automáticamente.
+                elseif ($request->hasFile('photo')) {
                     // 1. Eliminar rostro anterior de AWS si existe
                     if ($employee->aws_face_id) {
                         $this->rekognition->deleteFace($employee->aws_face_id);
                     }
 
-                    // 2. Actualizar foto en User
+                    // 2. Actualizar foto en User (Jetstream reemplaza el archivo viejo)
                     $employee->user->updateProfilePhoto($request->file('photo'));
 
                     // 3. Indexar nueva foto en AWS

@@ -31,7 +31,6 @@ class StockTransferController extends Controller
                         'inventories' => $product->inventories->mapWithKeys(function ($inv) {
                             return [$inv->location_id => $inv->quantity];
                         }),
-                        // Extra para UI
                         'image_url' => $product->getFirstMediaUrl('product_image', 'thumb'),
                     ];
                 })
@@ -40,53 +39,58 @@ class StockTransferController extends Controller
 
     public function store(Request $request)
     {
+        // 1. Validamos la estructura general y el array de items
         $validated = $request->validate([
-            'product_id' => 'required|exists:products,id',
             'from_location_id' => 'required|exists:locations,id|different:to_location_id',
             'to_location_id' => 'required|exists:locations,id',
-            'quantity' => 'required|integer|min:1',
-            'notes' => 'nullable|string|max:255'
+            'notes' => 'nullable|string|max:255',
+            'items' => 'required|array|min:1',
+            'items.*.product_id' => 'required|exists:products,id',
+            'items.*.quantity' => 'required|integer|min:1',
         ]);
 
         DB::beginTransaction();
         try {
-            $product = Product::find($validated['product_id']);
+            // 2. Procesamos cada item del array
+            foreach ($validated['items'] as $item) {
+                $product = Product::find($item['product_id']);
 
-            // 1. Verificar Origen
-            $sourceInventory = Inventory::firstOrCreate(
-                ['location_id' => $validated['from_location_id'], 'product_id' => $validated['product_id']],
-                ['quantity' => 0]
-            );
+                // A. Verificar Origen
+                $sourceInventory = Inventory::firstOrCreate(
+                    ['location_id' => $validated['from_location_id'], 'product_id' => $item['product_id']],
+                    ['quantity' => 0]
+                );
 
-            if ($sourceInventory->quantity < $validated['quantity']) {
-                throw ValidationException::withMessages([
-                    'quantity' => "Stock insuficiente en origen. Disponible: {$sourceInventory->quantity}"
+                if ($sourceInventory->quantity < $item['quantity']) {
+                    throw ValidationException::withMessages([
+                        'items' => "Stock insuficiente para '{$product->name}'. Disponible: {$sourceInventory->quantity}"
+                    ]);
+                }
+
+                // B. Asegurar Destino
+                $destInventory = Inventory::firstOrCreate(
+                    ['location_id' => $validated['to_location_id'], 'product_id' => $item['product_id']],
+                    ['quantity' => 0]
+                );
+
+                // C. Mover Stock
+                $sourceInventory->decrement('quantity', $item['quantity']);
+                $destInventory->increment('quantity', $item['quantity']);
+
+                // D. Registrar Kardex individualmente para trazabilidad
+                StockMovement::create([
+                    'product_id' => $item['product_id'],
+                    'from_location_id' => $validated['from_location_id'],
+                    'to_location_id' => $validated['to_location_id'],
+                    'quantity' => $item['quantity'],
+                    'type' => StockMovementType::TRANSFER,
+                    'user_id' => auth()->id(),
+                    'notes' => $validated['notes'] ?? 'Traspaso Múltiple'
                 ]);
             }
 
-            // 2. Asegurar Destino
-            $destInventory = Inventory::firstOrCreate(
-                ['location_id' => $validated['to_location_id'], 'product_id' => $validated['product_id']],
-                ['quantity' => 0]
-            );
-
-            // 3. Mover
-            $sourceInventory->decrement('quantity', $validated['quantity']);
-            $destInventory->increment('quantity', $validated['quantity']);
-
-            // 4. Registrar Kardex
-            StockMovement::create([
-                'product_id' => $validated['product_id'],
-                'from_location_id' => $validated['from_location_id'],
-                'to_location_id' => $validated['to_location_id'],
-                'quantity' => $validated['quantity'],
-                'type' => StockMovementType::TRANSFER,
-                'user_id' => auth()->id(),
-                'notes' => $validated['notes']
-            ]);
-
             DB::commit();
-            return back()->with('success', "Traspaso de {$product->name} realizado con éxito.");
+            return back()->with('success', "Se han traspasado " . count($validated['items']) . " productos correctamente.");
 
         } catch (ValidationException $e) {
             DB::rollBack();

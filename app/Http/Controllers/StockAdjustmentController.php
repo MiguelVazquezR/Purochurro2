@@ -35,59 +35,65 @@ class StockAdjustmentController extends Controller
                     ];
                 }),
             'types' => [
-                ['value' => StockMovementType::PURCHASE->value, 'label' => 'Compra / Entrada (+)', 'color' => 'green'],
-                ['value' => StockMovementType::ADJUSTMENT_IN->value, 'label' => 'Ajuste Entrada (+)', 'color' => 'blue'],
-                ['value' => StockMovementType::ADJUSTMENT_OUT->value, 'label' => 'Ajuste Salida (-)', 'color' => 'yellow'],
-                ['value' => StockMovementType::WASTE->value, 'label' => 'Merma / Caducado (-)', 'color' => 'red'],
+                ['value' => StockMovementType::PURCHASE->value, 'label' => 'Compra / Entrada (+)', 'color' => 'green', 'icon' => 'pi-shopping-cart'],
+                ['value' => StockMovementType::ADJUSTMENT_IN->value, 'label' => 'Ajuste Entrada (+)', 'color' => 'blue', 'icon' => 'pi-plus-circle'],
+                ['value' => StockMovementType::ADJUSTMENT_OUT->value, 'label' => 'Ajuste Salida (-)', 'color' => 'yellow', 'icon' => 'pi-minus-circle'],
+                ['value' => StockMovementType::WASTE->value, 'label' => 'Merma / Caducado (-)', 'color' => 'red', 'icon' => 'pi-trash'],
             ]
         ]);
     }
 
     public function store(Request $request)
     {
+        // 1. Validar Cabecera y Lista de Items
         $validated = $request->validate([
             'location_id' => 'required|exists:locations,id',
-            'product_id' => 'required|exists:products,id',
             'type' => ['required', Rule::enum(StockMovementType::class)],
-            'quantity' => 'required|integer|min:1',
-            'notes' => 'nullable|string|max:255'
+            'notes' => 'nullable|string|max:255',
+            'items' => 'required|array|min:1',
+            'items.*.product_id' => 'required|exists:products,id',
+            'items.*.quantity' => 'required|integer|min:1',
         ]);
 
         $type = StockMovementType::from($validated['type']);
-        // Definir si es entrada o salida basado en el Enum
         $isEntry = in_array($type, [StockMovementType::PURCHASE, StockMovementType::ADJUSTMENT_IN]);
         
         DB::beginTransaction();
         try {
-            $inventory = Inventory::firstOrCreate(
-                ['location_id' => $validated['location_id'], 'product_id' => $validated['product_id']],
-                ['quantity' => 0]
-            );
+            // 2. Procesar cada item
+            foreach ($validated['items'] as $item) {
+                $inventory = Inventory::firstOrCreate(
+                    ['location_id' => $validated['location_id'], 'product_id' => $item['product_id']],
+                    ['quantity' => 0]
+                );
 
-            // Validar Stock si es salida
-            if (!$isEntry) {
-                if ($inventory->quantity < $validated['quantity']) {
-                    throw ValidationException::withMessages([
-                        'quantity' => "Stock insuficiente. Actual: {$inventory->quantity}"
-                    ]);
+                // Validar Stock si es salida
+                if (!$isEntry) {
+                    if ($inventory->quantity < $item['quantity']) {
+                        $productName = Product::find($item['product_id'])->name;
+                        throw ValidationException::withMessages([
+                            'items' => "Stock insuficiente para '{$productName}'. Actual: {$inventory->quantity}"
+                        ]);
+                    }
+                    $inventory->decrement('quantity', $item['quantity']);
+                } else {
+                    $inventory->increment('quantity', $item['quantity']);
                 }
-                $inventory->decrement('quantity', $validated['quantity']);
-            } else {
-                $inventory->increment('quantity', $validated['quantity']);
+
+                // 3. Registrar Movimiento
+                StockMovement::create([
+                    'product_id' => $item['product_id'],
+                    'from_location_id' => $isEntry ? null : $validated['location_id'],
+                    'to_location_id' => $isEntry ? $validated['location_id'] : null,
+                    'type' => $type,
+                    'quantity' => $item['quantity'],
+                    'user_id' => auth()->id(),
+                    'notes' => $validated['notes'] ?? 'Ajuste Múltiple'
+                ]);
             }
 
-            StockMovement::create([
-                'product_id' => $validated['product_id'],
-                'from_location_id' => $isEntry ? null : $validated['location_id'],
-                'to_location_id' => $isEntry ? $validated['location_id'] : null,
-                'type' => $type,
-                'quantity' => $validated['quantity'],
-                'user_id' => auth()->id(),
-                'notes' => $validated['notes']
-            ]);
-
             DB::commit();
-            return back()->with('success', 'Movimiento de inventario registrado.');
+            return back()->with('success', 'Movimientos de inventario registrados correctamente.');
 
         } catch (ValidationException $e) {
             DB::rollBack();

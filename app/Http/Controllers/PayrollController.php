@@ -13,6 +13,7 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
 class PayrollController extends Controller
@@ -330,13 +331,41 @@ class PayrollController extends Controller
                 $attendance->date = $validated['date'];
             }
 
-            $attendance->fill([
-                'incident_type' => $newIncident,
-                'check_in' => $validated['check_in'] ?? null,
-                'check_out' => $validated['check_out'] ?? null,
-                'late_ignored' => $validated['late_ignored'] ?? false,
-                'admin_notes' => $validated['admin_notes'] ?? null,
-            ]);
+            // --- LÓGICA DE CALCULO DE RETARDO (Nuevo) ---
+            // Si el admin ingresa una hora de entrada, recalculamos is_late
+            // usando la misma lógica que el controlador de terminal (0 min tolerancia)
+            $isLate = false;
+            
+            // Solo calculamos si hay hora de entrada definida
+            if (!empty($validated['check_in'])) {
+                $schedule = WorkSchedule::with('shift')
+                    ->where('employee_id', $validated['employee_id'])
+                    ->whereDate('date', $validated['date'])
+                    ->first();
+
+                if ($schedule && $schedule->shift) {
+                    $checkInTime = Carbon::parse($validated['date'] . ' ' . $validated['check_in']);
+                    
+                    // FIX: Extraer SOLO la hora del turno. Al ser un objeto Carbon (por el cast en Shift.php),
+                    // al concatenar se convertía en string completo Y-m-d H:i:s.
+                    $shiftTimeOnly = Carbon::parse($schedule->shift->start_time)->format('H:i:s');
+                    
+                    // Ahora concatenamos la fecha de la asistencia + la hora del turno
+                    $entryLimit = Carbon::parse($validated['date'] . ' ' . $shiftTimeOnly);
+                    if ($checkInTime->greaterThan($entryLimit)) {
+                        $isLate = true;
+                    }
+                }
+            }
+            // ---------------------------------------------
+
+            // --- CORRECCIÓN: Usar asignación directa en lugar de fill() para asegurar guardado ---
+            $attendance->incident_type = $newIncident;
+            $attendance->check_in = $validated['check_in'] ?? null;
+            $attendance->check_out = $validated['check_out'] ?? null;
+            $attendance->is_late = $isLate;
+            $attendance->late_ignored = $validated['late_ignored'] ?? false;
+            $attendance->admin_notes = $validated['admin_notes'] ?? null;
 
             $attendance->save();
 

@@ -158,7 +158,7 @@ class AttendanceTerminalController extends Controller
 
                 $isLate = false;
                 if ($schedule && $schedule->shift) {
-                    $entryLimit = Carbon::parse($today . ' ' . $schedule->shift->start_time)->addMinutes(15);
+                    $entryLimit = Carbon::parse($today . ' ' . $schedule->shift->start_time);
                     if ($now->greaterThan($entryLimit)) {
                         $isLate = true;
                     }

@@ -1,9 +1,8 @@
 <?php
 
 use App\Http\Controllers\DashboardController;
-use Illuminate\Foundation\Application;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Route;
-use Inertia\Inertia;
 
 /*
 |--------------------------------------------------------------------------
@@ -44,4 +43,10 @@ Route::middleware([
     require __DIR__ . '/web/reports.php';
     require __DIR__ . '/web/tutorials.php';
 
+});
+
+//artisan
+Route::get('/storage-link', function () {
+    Artisan::call('storage:link');
+    return 'cleared.';
 });

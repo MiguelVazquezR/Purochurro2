@@ -38,6 +38,7 @@ const form = useForm({
     hired_at: parseDate(props.employee.hired_at),
     base_salary: parseFloat(props.employee.base_salary),
     photo: null,
+    remove_photo: false, // NUEVA BANDERA: Indica si se debe borrar la foto
     recurring_bonuses: initialBonuses,
     // Cargamos la plantilla existente o una vacía por defecto
     default_schedule_template: props.employee.default_schedule_template || {
@@ -79,6 +80,7 @@ const onFileChange = (event) => {
     const file = event.target.files[0];
     if (file) {
         form.photo = file;
+        form.remove_photo = false; // Si sube una nueva, NO queremos "solo borrar", sino reemplazar
         photoPreview.value = URL.createObjectURL(file);
     }
 };
@@ -89,7 +91,8 @@ const triggerFileInput = () => {
 
 const removePhoto = () => {
     form.photo = null;
-    photoPreview.value = null; // Esto quitará la foto visualmente
+    form.remove_photo = true; // Activar bandera de borrado
+    photoPreview.value = null; // Quitar la foto visualmente
     if (fileInput.value) {
         fileInput.value.value = '';
     }
@@ -104,6 +107,10 @@ const submit = () => {
         onSuccess: () => {
             toast.add({ severity: 'success', summary: 'Éxito', detail: 'Empleado actualizado correctamente', life: 3000 });
             form.password = ''; // Limpiar campo contraseña tras guardar
+            // Restablecer el estado de la foto si es necesario
+            if (form.remove_photo) {
+                form.remove_photo = false;
+            }
         },
         onError: () => {
             toast.add({ severity: 'error', summary: 'Error', detail: 'Por favor revisa los campos del formulario', life: 3000 });

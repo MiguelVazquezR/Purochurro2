@@ -188,7 +188,7 @@ const submitClose = () => {
 
                     <!-- Usamos scheduledStaff en lugar de operation.staff -->
                     <div v-if="scheduledStaff && scheduledStaff.length > 0"
-                        class="space-y-4 flex-1 overflow-y-auto max-h-48 pr-2 custom-scrollbar">
+                        class="space-y-4 flex-1 overflow-y-auto min-h-48 pr-2 custom-scrollbar">
                         <div v-for="employee in scheduledStaff" :key="employee.id" class="flex items-center gap-3">
                             <Avatar
                                 :label="(employee.full_name || employee.first_name || 'EM').substring(0, 2).toUpperCase()"

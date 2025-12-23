@@ -26,7 +26,7 @@ class RekognitionService
         try {
             $result = $this->client->searchFacesByImage([
                 'CollectionId'       => $this->collectionId,
-                'FaceMatchThreshold' => config('rekognition.confidence_threshold', 85),
+                'FaceMatchThreshold' => config('rekognition.confidence_threshold', 80),
                 'Image'              => ['Bytes' => $imageBytes],
                 'MaxFaces'           => 1,
             ]);

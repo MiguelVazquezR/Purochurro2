@@ -5,13 +5,6 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import axios from 'axios';
 import ProgressSpinner from 'primevue/progressspinner';
 
-// PrimeVue components
-import Button from 'primevue/button';
-import DatePicker from 'primevue/datepicker';
-import Tag from 'primevue/tag';
-import Avatar from 'primevue/avatar';
-import AvatarGroup from 'primevue/avatargroup';
-
 // --- IMPORTAR DRIVER.JS PARA EL TOUR ---
 import { driver } from "driver.js";
 import "driver.js/dist/driver.css";
@@ -60,7 +53,7 @@ const formatCurrency = (value) => {
     return new Intl.NumberFormat('es-MX', {
         style: 'currency',
         currency: 'MXN'
-    }).format(value);
+    }).format(value || 0);
 };
 
 // --- Filtro ---
@@ -138,14 +131,14 @@ const startTour = () => {
                 element: '#tour-staff-section-0', 
                 popover: { 
                     title: 'Personal en Turno', 
-                    description: 'Identifica rápidamente quiénes trabajaron ese día gracias a sus avatares.',
+                    description: 'Identifica rápidamente quiénes trabajaron ese día gracias a sus avatares (basado en asistencia registrada).',
                 } 
             },
             { 
                 element: '#tour-financials-0', 
                 popover: { 
                     title: 'Desglose Financiero', 
-                    description: 'Un vistazo rápido a los totales: cuánto se vendió al público general, cuánto consumieron los empleados y el gran total ingresado.',
+                    description: 'Un vistazo rápido a los totales: ventas al público, ventas a empleados y el monto real contado en caja.',
                 } 
             },
             { 
@@ -217,7 +210,7 @@ onBeforeUnmount(() => {
         <!-- Capa de Bloqueo -->
         <div v-if="isTourActive" class="fixed inset-0 z-[60] bg-transparent cursor-default"></div>
 
-        <div class="max-w-6xl mx-auto py-8 px-4 sm:px-6 lg:px-8 transition-opacity duration-300"
+        <div class="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8 transition-opacity duration-300"
              :class="{ '!pointer-events-none select-none': isTourActive }">
 
             <!-- Header -->
@@ -338,7 +331,7 @@ onBeforeUnmount(() => {
                                 
                                 <div v-else class="flex items-center gap-2 text-amber-600 bg-amber-50 px-3 py-2 rounded-lg text-xs font-medium w-full">
                                     <i class="pi pi-exclamation-triangle"></i>
-                                    <span>Sin asignación registrada</span>
+                                    <span>Sin asistencia</span>
                                 </div>
                             </div>
                         </div>
@@ -346,34 +339,46 @@ onBeforeUnmount(() => {
                         <!-- Columna 2: Desglose Financiero (9 cols) -->
                         <!-- ID TOUR: Financials -->
                         <div :id="index === 0 ? 'tour-financials-0' : null" class="md:col-span-8 lg:col-span-9">
-                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                                 
                                 <!-- Venta Público -->
-                                <div class="bg-gray-50 rounded-xl p-4 border border-transparent hover:border-gray-200 transition-colors">
+                                <div class="bg-gray-50 rounded-xl p-3 border border-transparent hover:border-gray-200 transition-colors">
                                     <div class="flex items-center gap-2 mb-1">
-                                        <div class="w-2 h-2 rounded-full bg-emerald-500"></div>
+                                        <div class="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
                                         <span class="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Público</span>
                                     </div>
-                                    <span class="text-xl font-bold text-gray-800 block">{{ formatCurrency(day.total_public) }}</span>
+                                    <span class="text-lg font-bold text-gray-800 block">{{ formatCurrency(day.total_public) }}</span>
                                 </div>
 
                                 <!-- Venta Empleados -->
-                                <div class="bg-gray-50 rounded-xl p-4 border border-transparent hover:border-gray-200 transition-colors">
+                                <div class="bg-gray-50 rounded-xl p-3 border border-transparent hover:border-gray-200 transition-colors">
                                     <div class="flex items-center gap-2 mb-1">
-                                        <div class="w-2 h-2 rounded-full bg-blue-500"></div>
+                                        <div class="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
                                         <span class="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Empleados</span>
                                     </div>
-                                    <span class="text-xl font-bold text-gray-800 block">{{ formatCurrency(day.total_employee) }}</span>
+                                    <span class="text-lg font-bold text-gray-800 block">{{ formatCurrency(day.total_employee) }}</span>
                                 </div>
 
                                 <!-- Total del Día (Destacado) -->
-                                <div class="bg-indigo-50 rounded-xl p-4 border border-indigo-100 text-right sm:text-left shadow-sm relative overflow-hidden group-hover:bg-indigo-100 transition-colors">
-                                    <div class="absolute right-0 top-0 opacity-10 transform translate-x-2 -translate-y-2">
-                                        <i class="pi pi-chart-line text-6xl text-indigo-900"></i>
+                                <div class="bg-indigo-50 rounded-xl p-3 border border-indigo-100 shadow-sm relative overflow-hidden group-hover:bg-indigo-100 transition-colors">
+                                    <div class="flex items-center gap-2 mb-1">
+                                        <div class="w-1.5 h-1.5 rounded-full bg-indigo-600"></div>
+                                        <span class="text-[10px] text-indigo-600 font-black uppercase tracking-widest">Total Sistema</span>
                                     </div>
-                                    <span class="text-[10px] text-indigo-600 font-black uppercase tracking-widest block mb-1">Total Ingresos</span>
-                                    <span class="text-2xl font-black text-indigo-800 block">{{ formatCurrency(day.grand_total) }}</span>
+                                    <span class="text-xl font-black text-indigo-800 block">{{ formatCurrency(day.grand_total) }}</span>
                                 </div>
+
+                                <!-- NUEVO: Corte Caja (Real) -->
+                                <div class="bg-white rounded-xl p-3 border border-gray-200 hover:border-orange-200 hover:bg-orange-50 transition-colors shadow-sm">
+                                    <div class="flex items-center gap-2 mb-1">
+                                        <div class="w-1.5 h-1.5 rounded-full bg-orange-500"></div>
+                                        <span class="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Corte Caja</span>
+                                    </div>
+                                    <span class="text-xl font-bold text-gray-800 block" :class="{'text-orange-600': day.is_closed}">
+                                        {{ day.is_closed ? formatCurrency(day.cash_end) : 'Pendiente' }}
+                                    </span>
+                                </div>
+
                             </div>
                         </div>
                     </div>

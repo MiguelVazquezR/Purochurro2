@@ -40,6 +40,7 @@ class ScheduleController extends Controller
                 }
             ])
             ->where('is_active', true)
+            ->orderBy('first_name') // Ordenamos alfabéticamente por nombre
             ->get()
             ->map(function ($employee) {
                 // 4. Transformar para el Frontend

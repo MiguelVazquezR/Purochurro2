@@ -102,7 +102,7 @@ const submit = () => {
                                     @change="onFileChange" />
                                 <div class="w-full h-full rounded-2xl overflow-hidden border-2 border-dashed border-surface-300 flex items-center justify-center bg-surface-50 transition-all duration-300 group-hover:border-orange-400 group-hover:bg-orange-50"
                                     @click="triggerFileInput">
-                                    <img v-if="imagePreview" :src="imagePreview" class="w-full h-full object-cover" />
+                                    <img v-if="imagePreview" :src="imagePreview" class="w-full h-full object-contain" />
                                     <div v-else class="flex flex-col items-center gap-2 text-surface-400">
                                         <i class="pi pi-image text-3xl"></i>
                                         <span class="text-xs font-medium">Click para subir</span>

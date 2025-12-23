@@ -64,12 +64,14 @@ const formatCurrency = (value) => {
 
 <template>
     <AppLayout title="Apertura de caja">
-        <div class="h-[calc(100vh-7rem)] flex items-center justify-center p-4">
+        <!-- CORRECCIÓN 1: Usar min-h en lugar de h fija para permitir scroll en móviles -->
+        <div class="min-h-[calc(100vh-7rem)] h-auto flex items-center justify-center p-4 py-8">
             
-            <div class="w-full max-w-4xl bg-white/80 backdrop-blur-xl border border-surface-200 rounded-3xl shadow-2xl overflow-hidden flex flex-col md:flex-row h-full md:h-auto min-h-[500px]">
+            <!-- CORRECCIÓN 2: h-auto en lugar de h-full para que la tarjeta crezca según el contenido -->
+            <div class="w-full max-w-4xl bg-white/80 backdrop-blur-xl border border-surface-200 rounded-3xl shadow-2xl overflow-hidden flex flex-col md:flex-row h-auto min-h-[500px]">
                 
                 <!-- Panel Izquierdo: Información e Input -->
-                <div class="flex-1 p-8 flex flex-col justify-between bg-gradient-to-br from-indigo-50 to-white">
+                <div class="flex-1 p-6 md:p-8 flex flex-col justify-between bg-gradient-to-br from-indigo-50 to-white gap-6">
                     <div>
                         <h1 class="text-2xl font-black text-surface-900 mb-2">¡Hola, {{ auth.user.name }}! 👋</h1>
                         <p class="text-surface-500 text-lg mb-4 capitalize">{{ today }}</p>
@@ -88,7 +90,7 @@ const formatCurrency = (value) => {
                         </div>
                     </div>
 
-                    <div class="mt-6 md:mt-0">
+                    <div class="mt-4 md:mt-0">
                         <button 
                             @click="submitOpenDay"
                             :disabled="form.processing"
@@ -102,8 +104,8 @@ const formatCurrency = (value) => {
                 </div>
 
                 <!-- Panel Derecho: Teclado Numérico -->
-                <div class="w-full md:w-[300px] bg-white border-l border-surface-100 p-5 flex flex-col justify-center">
-                    <div class="grid grid-cols-3 gap-2 h-full md:h-auto">
+                <div class="w-full md:w-[300px] bg-white border-t md:border-t-0 md:border-l border-surface-100 p-5 flex flex-col justify-center">
+                    <div class="grid grid-cols-3 gap-2 h-auto">
                         <button v-for="n in [1,2,3,4,5,6,7,8,9]" :key="n" @click="appendNumber(n)" class="aspect-square md:aspect-[4/3] bg-surface-50 hover:bg-surface-100 rounded-2xl text-2xl font-bold text-surface-700 shadow-sm border border-surface-200 active:scale-95 transition-all">
                             {{ n }}
                         </button>

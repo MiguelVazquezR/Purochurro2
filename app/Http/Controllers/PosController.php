@@ -46,7 +46,7 @@ class PosController extends Controller
                         // 2. Mapeamos el stock por ubicación: { location_id: cantidad }
                         'stocks' => $product->inventories->pluck('quantity', 'location_id'),
                         'track_inventory' => $product->track_inventory,
-                        'image_url' => $product->getFirstMediaUrl('product_image', 'thumb'),
+                        'image_url' => $product->getFirstMediaUrl('product_image'),
                     ];
                 }),
             'locations' => Location::where('is_sales_point', true)->get(),

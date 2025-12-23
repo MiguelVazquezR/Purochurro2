@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Category;
 use App\Models\Product;
+use App\Models\Location; // Importamos Location
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -15,10 +16,21 @@ class ProductController extends Controller
      */
     public function index()
     {
-        $products = Product::withSum('inventories as stock', 'quantity')
+        // Obtenemos las ubicaciones para las columnas de la tabla
+        $locations = Location::orderBy('name')->get();
+
+        $products = Product::with(['inventories']) // Cargamos inventarios completos en lugar de solo suma
             ->orderBy('name')
             ->get()
-            ->map(function ($product) {
+            ->map(function ($product) use ($locations) {
+                
+                // Mapeamos el stock por ubicación
+                $stockByLocation = [];
+                foreach ($locations as $location) {
+                    $inventory = $product->inventories->firstWhere('location_id', $location->id);
+                    $stockByLocation[$location->id] = $inventory ? $inventory->quantity : 0;
+                }
+
                 return [
                     'id' => $product->id,
                     'name' => $product->name,
@@ -29,13 +41,15 @@ class ProductController extends Controller
                     'is_sellable' => $product->is_sellable,
                     'track_inventory' => $product->track_inventory,
                     'is_active' => $product->is_active,
-                    'stock' => $product->stock ?? 0,
-                    'image_url' => $product->getFirstMediaUrl('product_image', 'thumb'),
+                    'stock' => $product->inventories->sum('quantity'), // Stock total
+                    'stocks' => $stockByLocation, // Desglose por ubicación
+                    'image_url' => $product->getFirstMediaUrl('product_image'),
                 ];
             });
 
         return Inertia::render('Product/Index', [
-            'products' => $products
+            'products' => $products,
+            'locations' => $locations // Pasamos las ubicaciones a la vista
         ]);
     }
 
