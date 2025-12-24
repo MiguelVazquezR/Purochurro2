@@ -22,6 +22,7 @@ class Attendance extends Model implements HasMedia
         'late_ignored',
         'admin_notes',
         'extra_hours',
+        'commission_amount', // <-- Agregado
         'created_at',
     ];
 
@@ -30,6 +31,7 @@ class Attendance extends Model implements HasMedia
         'is_late' => 'boolean',
         'late_ignored' => 'boolean',
         'incident_type' => IncidentType::class,
+        'commission_amount' => 'integer', // <-- Recomendado para asegurar formato
     ];
 
     public function employee()

@@ -62,6 +62,8 @@ return new class extends Migration
             $table->decimal('daily_salary_snapshot', 10, 2)->nullable(); // Sueldo de ese día (histórico)
             $table->decimal('extra_hours', 4, 2)->default(0);
 
+            $table->unsignedSmallInteger('commission_amount')->default(0); 
+
             $table->unique(['employee_id', 'date']);
             $table->timestamps();
         });

@@ -110,7 +110,7 @@ class PayrollService
             $shiftsCount = 1;
 
             if ($attendance) {
-                // Cálculo Doble Turno
+                // Cálculo Doble Turno y Fechas Base
                 if ($attendance->check_in && $attendance->check_out) {
                     try {
                         $in = Carbon::parse($attendance->check_in);
@@ -127,26 +127,66 @@ class PayrollService
                     }
                 }
 
-                // Retardos
+                // Cálculo de Retardos (Entrada)
                if ($attendance->check_in && $schedule?->shift) {
                     try {
-                        // Extraemos SOLO la hora para evitar error "Double date specification" 
-                        // si $schedule->shift->start_time ya trae fecha.
                         $shiftTimeStr = Carbon::parse($schedule->shift->start_time)->format('H:i:s');
                         $checkInTimeStr = Carbon::parse($attendance->check_in)->format('H:i:s');
                         
-                        // Construimos fecha correcta con hora limpia
                         $shiftStart = Carbon::parse("{$dateStr} {$shiftTimeStr}");
                         $checkIn = Carbon::parse("{$dateStr} {$checkInTimeStr}");
                         if ($checkIn->gt($shiftStart)) {
                             $dayLateMins = $attendance->late_ignored ? 0 : $shiftStart->diffInMinutes($checkIn, true);
                         }
                     } catch (\Exception $e) {
-                        // Log::info($e);
                     }
                 }
 
-                $dayExtraMins = ($attendance->extra_hours ?? 0) * 60;
+                // --- NUEVO: Cálculo Automático de Minutos Extras (Jornada Real vs Jornada Esperada) ---
+                if ($attendance->check_in && $attendance->check_out && $schedule?->shift) {
+                    try {
+                        // 1. Calcular Duración del Turno (Expected)
+                        $shiftStartStr = Carbon::parse($schedule->shift->start_time)->format('H:i:s');
+                        $shiftEndStr = Carbon::parse($schedule->shift->end_time)->format('H:i:s');
+                        
+                        $expectedStart = Carbon::parse("{$dateStr} {$shiftStartStr}");
+                        $expectedEnd = Carbon::parse("{$dateStr} {$shiftEndStr}");
+                        
+                        // Ajuste si el turno cruza la medianoche
+                        if ($expectedEnd->lessThan($expectedStart)) {
+                            $expectedEnd->addDay();
+                        }
+                        
+                        $expectedMinutes = $expectedStart->diffInMinutes($expectedEnd);
+
+                        // 2. Calcular Duración Trabajada (Actual)
+                        $actualInStr = Carbon::parse($attendance->check_in)->format('H:i:s');
+                        $actualOutStr = Carbon::parse($attendance->check_out)->format('H:i:s');
+                        
+                        $workedStart = Carbon::parse("{$dateStr} {$actualInStr}");
+                        $workedEnd = Carbon::parse("{$dateStr} {$actualOutStr}");
+                        
+                        // Ajuste si la salida es al día siguiente
+                        if ($workedEnd->lessThan($workedStart)) {
+                            $workedEnd->addDay();
+                        }
+
+                        // NOTA: Tomamos los tiempos reales. Si llegó antes, workedStart es anterior a expectedStart.
+                        $workedMinutes = $workedStart->diffInMinutes($workedEnd);
+
+                        // 3. Obtener diferencia (Solo si trabajó más de lo esperado)
+                        if ($workedMinutes > $expectedMinutes) {
+                            $autoExtras = $workedMinutes - $expectedMinutes;
+                            $dayExtraMins += $autoExtras;
+                        }
+
+                    } catch (\Exception $e) {
+                        // Log::error("Error calculando extras: " . $e->getMessage());
+                    }
+                }
+
+                // Sumar extras manuales si existieran (columna legacy)
+                $dayExtraMins += ($attendance->extra_hours ?? 0) * 60;
 
                 if ($attendance->is_late && !$attendance->late_ignored) {
                     $counters['lates']++;
@@ -204,27 +244,43 @@ class PayrollService
             }
 
             // --- COMISIÓN DIARIA ---
-            if ($dayIsAttendance && $operation && $operation->is_closed) {
-                $dailySales = $operation->sales->sum('total');
-                if ($dailySales > 0) {
+            $finalCommission = 0;
+            $baseCommission = 0;
+            $salesRef = 0;
+
+            if ($attendance && !is_null($attendance->commission_amount)) {
+                $finalCommission = $attendance->commission_amount;
+                if ($operation) {
+                    $salesRef = $operation->sales->sum('total');
                     $refProduct = Product::find(1);
-                    $baseCommission = floor(($dailySales / ($refProduct->price * 10)) / 10) * 10;
-                    $finalCommission = $baseCommission * $shiftsCount;
-
-                    if ($finalCommission > 0) {
-                        $totalCommissions += $finalCommission;
-                        $counters['commissions_count']++;
-                        $moneyBreakdown['commissions'] += $finalCommission;
-
-                        $details['commissions'][] = [
-                            'date' => $dateStr,
-                            'amount' => $finalCommission,
-                            'base_amount' => $baseCommission,
-                            'is_double' => $shiftsCount > 1,
-                            'sales_ref' => $dailySales
-                        ];
+                    if ($refProduct && $refProduct->price > 0) {
+                        $baseCommission = floor(($salesRef / ($refProduct->price * 10)) / 10) * 10;
                     }
                 }
+            }
+            elseif ($dayIsAttendance && $operation && $operation->is_closed) {
+                $salesRef = $operation->sales->sum('total');
+                if ($salesRef > 0) {
+                    $refProduct = Product::find(1);
+                    if ($refProduct) {
+                        $baseCommission = floor(($salesRef / ($refProduct->price * 10)) / 10) * 10;
+                        $finalCommission = $baseCommission * $shiftsCount;
+                    }
+                }
+            }
+
+            if ($finalCommission > 0) {
+                $totalCommissions += $finalCommission;
+                $counters['commissions_count']++;
+                $moneyBreakdown['commissions'] += $finalCommission;
+
+                $details['commissions'][] = [
+                    'date' => $dateStr,
+                    'amount' => $finalCommission,
+                    'base_amount' => $baseCommission > 0 ? $baseCommission : ($shiftsCount > 0 ? $finalCommission / $shiftsCount : 0),
+                    'is_double' => $shiftsCount > 1,
+                    'sales_ref' => $salesRef
+                ];
             }
 
             // --- PAGO DEL DÍA ---
@@ -286,7 +342,6 @@ class PayrollService
             if ($dayIsAbsent) $periodStats['unjustified_absences']++;
             if ($dayIsAttendance) $periodStats['attendance_days']++;
 
-            // [FIX] Llenar dailyStats para que el BonusService pueda evaluar reglas diarias
             $dailyStats[$dateStr] = [
                 'late_minutes' => $dayLateMins,
                 'extra_minutes' => $dayExtraMins,
@@ -304,6 +359,7 @@ class PayrollService
                     'shifts_count' => $shiftsCount,
                     'late_ignored' => $attendance?->late_ignored ?? false,
                     'is_late' => $attendance?->is_late ?? false,
+                    'extra_minutes' => $dayExtraMins // Info útil para debug
                 ];
             }
 
