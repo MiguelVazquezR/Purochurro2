@@ -9,6 +9,8 @@ use Illuminate\Support\Facades\Route;
 Route::get('/payroll', [PayrollController::class, 'index'])->name('payroll.index');
 Route::get('/payroll/week/{startDate}', [PayrollController::class, 'week'])->name('payroll.week');
 Route::post('/payroll/update-day', [PayrollController::class, 'updateDay'])->name('payroll.update-day');
+// --- NUEVA RUTA PARA ELIMINAR ASISTENCIA ---
+Route::delete('/payroll/day/{id}', [PayrollController::class, 'deleteDay'])->name('payroll.delete-day');
 Route::get('/payroll/settlement/{startDate}', [PayrollController::class, 'settlement'])->name('payroll.settlement');
 
 // RUTA: Acción de cierre
