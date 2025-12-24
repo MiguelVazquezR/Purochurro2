@@ -91,7 +91,14 @@ const openCamera = () => {
 const startCamera = async () => {
     try {
         isCameraActive.value = true;
-        const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+        // Preferir resolución HD pero adaptable
+        const mediaStream = await navigator.mediaDevices.getUserMedia({ 
+            video: { 
+                facingMode: 'user',
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
+            } 
+        });
         stream.value = mediaStream;
         // Timeout para asegurar que el ref existe en el DOM
         setTimeout(() => {
@@ -118,14 +125,34 @@ const captureAndRegister = async () => {
     if (!videoRef.value || !canvasRef.value) return;
     isProcessing.value = true;
 
-    // Capturar frame
-    const context = canvasRef.value.getContext('2d');
-    canvasRef.value.width = videoRef.value.videoWidth;
-    canvasRef.value.height = videoRef.value.videoHeight;
-    context.drawImage(videoRef.value, 0, 0, canvasRef.value.width, canvasRef.value.height);
-    const imageBase64 = canvasRef.value.toDataURL('image/jpeg', 0.8);
-
     try {
+        // 1. Obtener dimensiones originales
+        const originalWidth = videoRef.value.videoWidth;
+        const originalHeight = videoRef.value.videoHeight;
+
+        // 2. Calcular dimensiones reducidas (Max Width 600px)
+        // Reducimos resolución para evitar errores de AWS (Max 5MB) y timeouts en móviles 4K
+        const MAX_WIDTH = 600;
+        let targetWidth = originalWidth;
+        let targetHeight = originalHeight;
+
+        if (originalWidth > MAX_WIDTH) {
+            const scaleFactor = MAX_WIDTH / originalWidth;
+            targetWidth = MAX_WIDTH;
+            targetHeight = originalHeight * scaleFactor;
+        }
+
+        // 3. Configurar canvas con dimensiones reducidas
+        canvasRef.value.width = targetWidth;
+        canvasRef.value.height = targetHeight;
+
+        const context = canvasRef.value.getContext('2d');
+        // Dibujar imagen redimensionada
+        context.drawImage(videoRef.value, 0, 0, targetWidth, targetHeight);
+
+        // 4. Exportar a Base64 con compresión (0.7 calidad)
+        const imageBase64 = canvasRef.value.toDataURL('image/jpeg', 0.7);
+
         // Usamos la nueva ruta 'attendance.web' que apunta a registerWeb
         const response = await axios.post(route('attendance.web'), { image: imageBase64 });
 
@@ -150,6 +177,7 @@ const captureAndRegister = async () => {
     } catch (error) {
         const msg = error.response?.data?.message || 'Error al procesar la imagen.';
         toast.add({ severity: 'error', summary: 'Error', detail: msg, life: 5000 });
+        console.error(error);
     } finally {
         isProcessing.value = false;
     }

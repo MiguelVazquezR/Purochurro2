@@ -421,51 +421,52 @@ const getCellClass = (day) => {
             </div>
 
             <!-- ============================================== -->
-            <!-- VISTA MÓVIL (GRID DE TARJETAS)                 -->
+            <!-- VISTA MÓVIL (GRID DE TARJETAS AMPLIFICADA)     -->
             <!-- ============================================== -->
-            <div class="md:hidden flex flex-col gap-4 pb-20">
+            <div class="md:hidden flex flex-col gap-5 pb-20"> <!-- Gap aumentado -->
                 <div v-for="row in filteredEmployees" :key="row.employee.id"
-                    class="bg-white rounded-2xl shadow-sm border border-surface-200 p-4">
+                    class="bg-white rounded-2xl shadow-sm border border-surface-200 p-5"> <!-- Padding aumentado -->
 
-                    <!-- Cabecera de Empleado (Móvil) -->
-                    <div class="flex items-center justify-between mb-4 border-b border-surface-100 pb-3">
-                        <div class="flex items-center gap-3">
+                    <!-- Cabecera de Empleado (Móvil Grande) -->
+                    <div class="flex items-center justify-between mb-5 border-b border-surface-100 pb-4">
+                        <div class="flex items-center gap-4"> <!-- Gap aumentado -->
                             <div class="relative flex-shrink-0">
                                 <img v-if="row.employee.profile_photo_url" :src="row.employee.profile_photo_url"
-                                    class="w-10 h-10 rounded-full object-cover">
+                                    class="w-16 h-16 rounded-full object-cover"> <!-- Avatar 64px -->
                                 <div v-else
-                                    class="w-10 h-10 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center font-bold text-xs border border-orange-200">
+                                    class="w-16 h-16 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center font-bold text-xl border border-orange-200">
                                     {{ row.employee.first_name[0] }}{{ row.employee.last_name[0] }}
                                 </div>
                             </div>
                             <div>
-                                <div class="font-bold text-surface-900 text-sm leading-tight">{{ row.employee.full_name
-                                    }}</div>
-                                <div class="text-xs text-surface-500">ID: {{ row.employee.id }}</div>
+                                <div class="font-bold text-surface-900 text-xl leading-tight">{{ row.employee.full_name }}</div> <!-- Texto XL -->
+                                <div class="text-sm text-surface-500 font-medium">ID: {{ row.employee.id }}</div> <!-- ID más legible -->
                             </div>
                         </div>
                         <div class="flex flex-col items-end">
-                            <span class="text-[10px] text-surface-500 uppercase font-bold">Total</span>
-                            <span class="bg-surface-100 px-2 py-0.5 rounded-full text-sm font-bold text-surface-700">
+                            <span class="text-xs text-surface-500 uppercase font-bold">Total</span>
+                            <span class="bg-surface-100 px-3 py-1 rounded-full text-base font-bold text-surface-700"> <!-- Badge Total más grande -->
                                 {{ calculateTotalHours(row.days) }}
                             </span>
                         </div>
                     </div>
 
-                    <!-- Grid de Días (Móvil) -->
-                    <div class="grid grid-cols-3 xs:grid-cols-4 gap-2">
+                    <!-- Grid de Días (Móvil Grande) -->
+                    <!-- Cambiado a 2 columnas (3 en pantallas pequeñas plus) para dar espacio -->
+                    <div class="grid grid-cols-2 xs:grid-cols-3 gap-3">
                         <div v-for="day in row.days" :key="day.date"
-                            class="rounded-xl border p-2 flex flex-col items-center justify-center text-center cursor-pointer relative overflow-hidden h-20"
-                            :class="getCellClass(day)" @click="openEdit(row, day)">
+                            class="rounded-xl border p-3 flex flex-col items-center justify-center text-center cursor-pointer relative overflow-hidden h-32" 
+                            :class="getCellClass(day)" @click="openEdit(row, day)"> <!-- Altura aumentada a h-32 -->
+                            
                             <!-- Etiqueta de Día -->
-                            <div class="text-[9px] uppercase font-bold opacity-70 mb-1">
+                            <div class="text-sm uppercase font-bold opacity-70 mb-2"> <!-- Texto día más grande -->
                                 {{ day.day_name.substring(0, 3) }} {{ dayjs(day.date).format('D') }}
                             </div>
 
                             <!-- === INDICADORES (Badge Festivo Laborado) === -->
                             <div v-if="getHolidayInfo(day.date) && day.check_in"
-                                class="absolute -top-1 -right-1 bg-yellow-400 text-yellow-900 text-xs font-black px-1.5 py-0.5 rounded-bl-lg rounded-tr-lg shadow-sm z-10 flex items-center gap-0.5">
-                                <i class="pi pi-star-fill !text-[10px]"></i>
+                                class="absolute -top-1 -right-1 bg-yellow-400 text-yellow-900 text-xs font-black px-2 py-1 rounded-bl-lg rounded-tr-lg shadow-sm z-10 flex items-center gap-0.5">
+                                <i class="pi pi-star-fill !text-xs"></i>
                                 {{ getHolidayInfo(day.date).pay_multiplier ?
                                     `${getHolidayInfo(day.date).pay_multiplier}x` : '3x' }}
                             </div>
@@ -474,54 +475,54 @@ const getCellClass = (day) => {
                             <div class="absolute top-1 right-1.5 flex gap-1" v-else>
                                 <div v-if="day.is_late && !day.late_ignored"
                                     class="flex items-center space-x-1 text-red-600">
-                                    <div class="size-2 rounded-full bg-red-500 ring-2 ring-white" title="Retardo"></div>
+                                    <div class="size-3 rounded-full bg-red-500 ring-2 ring-white" title="Retardo"></div> <!-- Indicador más grande -->
                                 </div>
                                 <div v-if="day.late_ignored" class="flex items-center space-x-1 text-green-600">
-                                    <div class="size-2 rounded-full bg-green-500 ring-2 ring-white"
+                                    <div class="size-3 rounded-full bg-green-500 ring-2 ring-white"
                                         title="Retardo justificado">
                                     </div>
                                 </div>
                                 <div v-if="day.admin_notes" class="flex items-center space-x-1 text-blue-500">
-                                    <i class="pi pi-comment !text-[9px]"></i>
+                                    <i class="pi pi-comment !text-sm"></i>
                                 </div>
                                 
                                 <!-- === NUEVO: Badge Comisión (Versión Móvil) === -->
                                 <div v-if="day.commission" class="flex items-center space-x-1 text-orange-500">
-                                    <i class="pi pi-star-fill !text-[9px]"></i>
+                                    <i class="pi pi-star-fill !text-sm"></i>
                                 </div>
                             </div>
 
-                            <!-- Contenido Célula -->
+                            <!-- Contenido Célula (Textos aumentados) -->
                             <template v-if="getHolidayInfo(day.date) && day.check_in">
-                                <div class="flex flex-col gap-0 leading-none">
-                                    <span class="text-[10px] font-bold text-yellow-900 whitespace-nowrap">{{
+                                <div class="flex flex-col gap-1 leading-none">
+                                    <span class="text-base font-bold text-yellow-900 whitespace-nowrap">{{
                                         formatTime12h(day.check_in) }}</span>
-                                    <span class="text-[9px] text-yellow-700 whitespace-nowrap">{{
+                                    <span class="text-sm text-yellow-700 whitespace-nowrap">{{
                                         formatTime12h(day.check_out) || '--:--' }}</span>
                                 </div>
                             </template>
                             <template v-else-if="getHolidayInfo(day.date)">
                                 <div
-                                    class="text-[9px] font-bold leading-tight px-1 break-words w-full line-clamp-2 text-emerald-800">
+                                    class="text-sm font-bold leading-tight px-1 break-words w-full line-clamp-3 text-emerald-800">
                                     {{ getHolidayInfo(day.date).name || 'Festivo' }}
                                 </div>
                             </template>
                             <template v-else-if="day.incident_type === 'asistencia' && day.check_in">
-                                <div class="flex flex-col gap-0 leading-none">
-                                    <span class="text-[10px] font-bold text-surface-800 whitespace-nowrap">{{
+                                <div class="flex flex-col gap-1 leading-none">
+                                    <span class="text-base font-bold text-surface-800 whitespace-nowrap">{{
                                         formatTime12h(day.check_in) }}</span>
-                                    <span class="text-[9px] text-surface-600 whitespace-nowrap">{{
+                                    <span class="text-sm text-surface-600 whitespace-nowrap">{{
                                         formatTime12h(day.check_out) || '--:--' }}</span>
                                 </div>
                             </template>
                             <template v-else-if="day.incident_type !== 'asistencia'">
-                                <div class="text-[9px] font-bold leading-tight px-1 break-words w-full line-clamp-2">
+                                <div class="text-sm font-bold leading-tight px-1 break-words w-full line-clamp-3">
                                     {{incidentOptions.find(o => o.value === day.incident_type)?.label ||
                                         day.incident_label}}
                                 </div>
                             </template>
                             <template v-else>
-                                <i class="pi pi-minus text-surface-300 text-xs"></i>
+                                <i class="pi pi-minus text-surface-300 text-xl"></i>
                             </template>
                         </div>
                     </div>
