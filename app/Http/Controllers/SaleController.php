@@ -152,12 +152,19 @@ class SaleController extends Controller
 
         $totalSales = $dailyOperation->sales()->sum('total');
         
+        // 1. Cálculo de Comisión
         $refProduct = Product::find(1);
         $commissionBase = 0;
         if ($refProduct && $refProduct->price > 0) {
             $commissionBase = floor(($totalSales / ($refProduct->price * 10)) / 10) * 10;
         }
 
+        // 2. Guardar Comisión en Asistencias del Día
+        // Buscamos todas las asistencias registradas para la fecha de la operación
+        $affectedAttendances = Attendance::whereDate('date', $dailyOperation->date)
+            ->update(['commission_amount' => $commissionBase]);
+
+        // 3. Lógica de Cierre de Caja
         $cashStart = floatval($dailyOperation->cash_start);
         $cashEndReal = floatval($validated['cash_end']);
         $expectedCash = $cashStart + $totalSales;
@@ -177,6 +184,7 @@ class SaleController extends Controller
         $finalNote .= "\nDiferencia:      " . $diffSymbol . "$" . number_format($difference, 2) . " " . $diffLabel;
         $finalNote .= "\n\n--- COMISIÓN ---";
         $finalNote .= "\nPago por turno:  $" . number_format($commissionBase, 2);
+        $finalNote .= "\nAsignada a:      " . $affectedAttendances . " empleados.";
 
         $dailyOperation->update([
             'cash_end' => $validated['cash_end'],
@@ -184,6 +192,6 @@ class SaleController extends Controller
             'notes' => trim($finalNote)
         ]);
 
-        return redirect()->back()->with('success', 'Corte de caja realizado con éxito.');
+        return redirect()->back()->with('success', "Corte realizado. Comisión de $$commissionBase guardada para $affectedAttendances empleados.");
     }
 }

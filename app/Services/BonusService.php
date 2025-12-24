@@ -47,19 +47,27 @@ class BonusService
             $bonusPay = 0;
             $scope = $config['scope'] ?? 'period_total';
             $concept = $config['concept'] ?? '';
+            
+            // --- CORRECCIÓN: Definir comportamiento ---
+            // Si el concepto es "Minutos extra" (extra_minutes), forzamos 'pay_per_unit'
+            // para asegurar que se pague por minuto y no por el hecho de tener extras (fixed_amount).
+            $behavior = $config['behavior'] ?? 'fixed_amount';
+            if ($concept === 'extra_minutes') {
+                $behavior = 'pay_per_unit';
+            }
 
-            // A. Evaluación Diaria (Ej: $50 por cada día que llegue temprano)
+            // A. Evaluación Diaria (Ej: $50 por cada día que llegue temprano o $1 por min extra diario)
             if ($scope === 'daily') {
                 foreach ($dailyStats as $date => $stat) {
                     // Validaciones de pre-requisitos
                     if ($concept === 'attendance' && empty($stat['is_attendance'])) continue;
-                    if ($concept === 'late_minutes' && empty($stat['is_attendance'])) continue;
+                    if (($concept === 'late_minutes' || $concept === 'extra_minutes') && empty($stat['is_attendance'])) continue;
 
                     $value = $this->extractValue($concept, $stat);
                     
                     if ($this->checkRule($value, $config['operator'], $config['value'])) {
                         $bonusPay += $this->calculateAmount(
-                            $config['behavior'], 
+                            $behavior, // Usamos la variable local corregida
                             $baseAmount, 
                             $value, 
                             $config['value'], 
@@ -73,7 +81,7 @@ class BonusService
                 $value = $this->extractValue($concept, $periodStats);
                 if ($this->checkRule($value, $config['operator'], $config['value'])) {
                     $bonusPay += $this->calculateAmount(
-                        $config['behavior'], 
+                        $behavior, // Usamos la variable local corregida
                         $baseAmount, 
                         $value, 
                         $config['value'], 
@@ -133,12 +141,14 @@ class BonusService
         // Opción B: Pago por unidad (Ej: $10 por cada minuto extra)
         if ($behavior === 'pay_per_unit') {
             // Si la regla es "Mayor que X", pagamos solo por el excedente
+            // Ej: Regla > 0 min. Actual 20. Paga (20-0) * Base.
             if ($operator === '>') {
                 $units = max(0, $actualValue - $targetValue);
                 return $units * $baseAmount;
             }
             
-            // En otros casos (ej: pagar por cada minuto extra sin umbral minimo, o donde umbral es 0)
+            // En otros casos (ej: pagar por cada minuto extra sin umbral mínimo, o donde umbral es 0)
+            // Ej: Regla >= 0. Actual 20. Paga 20 * Base.
             return $actualValue * $baseAmount;
         }
 

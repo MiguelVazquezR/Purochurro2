@@ -3,18 +3,19 @@ import { ref, computed } from 'vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { useToast } from 'primevue/usetoast';
-import Image from 'primevue/image'; // --- NUEVO IMPORT ---
+import Image from 'primevue/image';
+import InputNumber from 'primevue/inputnumber'; 
 import dayjs from 'dayjs';
-import 'dayjs/locale/es-mx'; // Importar locale español
+import 'dayjs/locale/es-mx';
 
 dayjs.locale('es-mx');
 
 const props = defineProps({
-    payrollData: Array, // Datos pre-calculados del controlador
+    payrollData: Array,
     startDate: String,
     endDate: String,
-    incidentTypes: Array, // Lista de valores del Enum
-    holidays: { type: Array, default: () => [] } // Nueva prop para lista de festivos
+    incidentTypes: Array,
+    holidays: { type: Array, default: () => [] }
 });
 
 const toast = useToast();
@@ -34,7 +35,6 @@ const nextWeek = () => {
 const dateRangeLabel = computed(() => {
     const start = dayjs(props.startDate);
     const end = dayjs(props.endDate);
-    // Ejemplo: 23 nov - 29 nov 2025
     if (start.month() === end.month()) {
         return `${start.format('D')} - ${end.format('D MMM YYYY')}`;
     }
@@ -59,14 +59,11 @@ const getHolidayInfo = (dateStr) => {
 };
 
 // --- Formato de Hora (Nueva Lógica 12h) ---
-// Transforma '14:00' (24h) -> '02:00 PM' (12h) solo para visualización
 const formatTime12h = (time24h) => {
     if (!time24h) return null;
-    // Creamos una fecha dummy para parsear la hora correctamente
     return dayjs(`2000-01-01 ${time24h}`).format('hh:mm A');
 };
 
-// --- Cálculo de Totales (Visual) ---
 const calculateTotalHours = (days) => {
     let totalMinutes = 0;
     days.forEach(day => {
@@ -91,9 +88,11 @@ const calculateTotalHours = (days) => {
 const editDialog = ref(false);
 const selectedEmployee = ref(null);
 const selectedDay = ref(null);
-const currentPhotos = ref({ checkIn: null, checkOut: null }); // --- NUEVO ESTADO FOTOS ---
+const currentPhotos = ref({ checkIn: null, checkOut: null });
+const isDeleting = ref(false); // Estado de carga para eliminación
 
 const form = useForm({
+    attendance_id: null, // ID del registro para saber si editar o borrar
     employee_id: null,
     date: null,
     incident_type: 'asistencia',
@@ -101,6 +100,7 @@ const form = useForm({
     check_out: null,
     late_ignored: false,
     admin_notes: '',
+    commission_amount: null,
 });
 
 // Mapa de etiquetas para el select
@@ -123,18 +123,19 @@ const openEdit = (employeeData, dayData) => {
     selectedEmployee.value = employeeData.employee;
     selectedDay.value = dayData;
 
-    // --- CARGAR FOTOS ---
     currentPhotos.value.checkIn = dayData.check_in_photo;
     currentPhotos.value.checkOut = dayData.check_out_photo;
 
+    // Llenar formulario
+    form.attendance_id = dayData.attendance_id; // IMPORTANTE: Capturar ID
     form.employee_id = employeeData.employee.id;
     form.date = dayData.date;
     form.incident_type = dayData.incident_type || 'asistencia';
-    // Parseamos la hora 24h que viene del backend para inicializar el DatePicker
     form.check_in = dayData.check_in ? dayjs(`2000-01-01 ${dayData.check_in}`).toDate() : null;
     form.check_out = dayData.check_out ? dayjs(`2000-01-01 ${dayData.check_out}`).toDate() : null;
     form.late_ignored = Boolean(dayData.late_ignored);
     form.admin_notes = dayData.admin_notes || '';
+    form.commission_amount = dayData.commission || null;
 
     editDialog.value = true;
 };
@@ -142,14 +143,13 @@ const openEdit = (employeeData, dayData) => {
 const saveIncident = () => {
     form.transform((data) => ({
         ...data,
-        // Convertimos la hora seleccionada en el DatePicker de vuelta a 24h para la DB
         check_in: data.check_in ? dayjs(data.check_in).format('HH:mm') : null,
         check_out: data.check_out ? dayjs(data.check_out).format('HH:mm') : null,
     })).post(route('payroll.update-day'), {
         preserveScroll: true,
         onSuccess: () => {
             editDialog.value = false;
-            toast.add({ severity: 'success', summary: 'Actualizado', detail: 'Registro de asistencia modificado', life: 3000 });
+            toast.add({ severity: 'success', summary: 'Actualizado', detail: 'Registro guardado correctamente', life: 3000 });
         },
         onError: () => {
             toast.add({ severity: 'error', summary: 'Error', detail: 'Revisa los datos ingresados', life: 3000 });
@@ -157,7 +157,28 @@ const saveIncident = () => {
     });
 };
 
-// Helper para clases CSS de celdas
+const deleteIncident = () => {
+    if (!form.attendance_id) return;
+
+    if (!confirm('¿Estás seguro de que deseas eliminar este registro por completo? Se perderán las horas y fotos asociadas.')) {
+        return;
+    }
+
+    isDeleting.value = true;
+    router.delete(route('payroll.delete-day', form.attendance_id), {
+        preserveScroll: true,
+        onSuccess: () => {
+            editDialog.value = false;
+            isDeleting.value = false;
+            toast.add({ severity: 'info', summary: 'Eliminado', detail: 'Registro de asistencia eliminado', life: 3000 });
+        },
+        onError: () => {
+            isDeleting.value = false;
+            toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo eliminar el registro', life: 3000 });
+        }
+    });
+};
+
 const getCellClass = (day) => {
     const holiday = getHolidayInfo(day.date);
 
@@ -208,7 +229,6 @@ const getCellClass = (day) => {
             <div
                 class="flex flex-col xl:flex-row justify-between items-center gap-4 bg-white p-4 rounded-3xl shadow-sm border border-surface-200 sticky top-16 z-20">
 
-                <!-- Navegación de Periodo -->
                 <div class="flex items-center gap-3 rounded-full px-2 py-1 border border-surface-100 bg-surface-50">
                     <Button icon="pi pi-chevron-left" text rounded @click="prevWeek" aria-label="Semana anterior" />
                     <div class="text-center px-2">
@@ -220,7 +240,6 @@ const getCellClass = (day) => {
                     <Button icon="pi pi-chevron-right" text rounded @click="nextWeek" aria-label="Semana siguiente" />
                 </div>
 
-                <!-- Buscador -->
                 <div class="w-full max-w-md">
                     <IconField iconPosition="left">
                         <InputIcon class="pi pi-search" />
@@ -229,7 +248,6 @@ const getCellClass = (day) => {
                     </IconField>
                 </div>
 
-                <!-- Acciones Extra -->
                 <div class="flex gap-2 w-full md:w-auto justify-end">
                     <a :href="route('payroll.receipts', startDate)" target="_blank" rel="noopener noreferrer">
                         <Button label="Recibos" icon="pi pi-print" severity="secondary" outlined rounded
@@ -312,7 +330,7 @@ const getCellClass = (day) => {
                                                 `${getHolidayInfo(day.date).pay_multiplier}x` : '3x' }}
                                         </div>
 
-                                        <!-- Indicadores de Estado (Retardos) -->
+                                        <!-- Indicadores de Estado (Retardos y Comisión) -->
                                         <div class="absolute top-1 right-1.5 flex gap-1" v-else>
                                             <div v-if="day.is_late && !day.late_ignored"
                                                 class="flex items-center space-x-1 text-red-600">
@@ -330,6 +348,11 @@ const getCellClass = (day) => {
                                                 class="flex items-center space-x-1 text-blue-500">
                                                 <i class="pi pi-comment !text-[9px]"></i>
                                             </div>
+                                            
+                                            <!-- === NUEVO: Badge Comisión (Versión Admin) === -->
+                                            <div v-if="day.commission" class="flex items-center space-x-1 text-orange-500">
+                                                <i class="pi pi-star-fill !text-[9px]"></i>
+                                            </div>
                                         </div>
 
                                         <!-- Turno -->
@@ -340,7 +363,6 @@ const getCellClass = (day) => {
 
                                         <!-- === CONTENIDO DE LA CELDA CON FORMATO 12H === -->
 
-                                        <!-- CASO 1: Festivo Laborado -->
                                         <template v-if="getHolidayInfo(day.date) && day.check_in">
                                             <div class="flex flex-col gap-0.5">
                                                 <span
@@ -353,7 +375,6 @@ const getCellClass = (day) => {
                                             </div>
                                         </template>
 
-                                        <!-- CASO 2: Festivo NO Laborado (Automático) -->
                                         <template v-else-if="getHolidayInfo(day.date)">
                                             <div
                                                 class="text-[11px] font-bold leading-tight px-1 break-words w-full text-emerald-800">
@@ -361,7 +382,6 @@ const getCellClass = (day) => {
                                             </div>
                                         </template>
 
-                                        <!-- CASO 3: Asistencia Normal -->
                                         <template v-else-if="day.incident_type === 'asistencia' && day.check_in">
                                             <div class="flex flex-col gap-0">
                                                 <span
@@ -372,7 +392,6 @@ const getCellClass = (day) => {
                                             </div>
                                         </template>
 
-                                        <!-- CASO 4: Otra Incidencia -->
                                         <template v-else-if="day.incident_type !== 'asistencia'">
                                             <div class="text-[11px] font-bold leading-tight px-1 break-words w-full">
                                                 {{incidentOptions.find(o => o.value === day.incident_type)?.label ||
@@ -380,7 +399,6 @@ const getCellClass = (day) => {
                                             </div>
                                         </template>
 
-                                        <!-- CASO 5: Vacío -->
                                         <template v-else>
                                             <div class="!text-surface-300">
                                                 <i class="pi pi-minus-circle !text-lg opacity-20"></i>
@@ -399,29 +417,6 @@ const getCellClass = (day) => {
                             </tr>
                         </tbody>
                     </table>
-                </div>
-
-                <!-- Footer Leyenda -->
-                <div
-                    class="border-t border-surface-200 bg-surface-50 p-3 flex flex-wrap gap-4 text-xs text-surface-600 justify-center">
-                    <div class="flex items-center gap-1"><span
-                            class="size-3 rounded-full bg-red-100 border border-red-300"></span>
-                        Falta Injustificada</div>
-                    <div class="flex items-center gap-1"><span
-                            class="size-3 rounded-full bg-orange-100 border border-orange-300"></span> Falta Justificada
-                    </div>
-                    <div class="flex items-center gap-1"><span
-                            class="size-3 rounded-full bg-blue-100 border border-blue-300"></span>
-                        Vacaciones</div>
-                    <div class="flex items-center gap-1"><span
-                            class="size-3 rounded-full bg-purple-100 border border-purple-300"></span> Incapacidad</div>
-                    <div class="flex items-center gap-1"><span
-                            class="size-3 rounded-full bg-emerald-100 border border-emerald-300"></span> Festivo</div>
-                    <div class="flex items-center gap-1"><span
-                            class="size-3 rounded-full bg-indigo-100 border border-indigo-300"></span> Permiso</div>
-                    <div class="flex items-center gap-1"><span
-                            class="size-3 rounded-full bg-yellow-100 border border-yellow-300"></span> Día festivo
-                        laborado</div>
                 </div>
             </div>
 
@@ -475,7 +470,7 @@ const getCellClass = (day) => {
                                     `${getHolidayInfo(day.date).pay_multiplier}x` : '3x' }}
                             </div>
 
-                            <!-- Indicadores de Estado (Retardos) -->
+                            <!-- Indicadores de Estado -->
                             <div class="absolute top-1 right-1.5 flex gap-1" v-else>
                                 <div v-if="day.is_late && !day.late_ignored"
                                     class="flex items-center space-x-1 text-red-600">
@@ -486,15 +481,17 @@ const getCellClass = (day) => {
                                         title="Retardo justificado">
                                     </div>
                                 </div>
-                                <!-- Indicador de Nota Admin -->
                                 <div v-if="day.admin_notes" class="flex items-center space-x-1 text-blue-500">
                                     <i class="pi pi-comment !text-[9px]"></i>
+                                </div>
+                                
+                                <!-- === NUEVO: Badge Comisión (Versión Móvil) === -->
+                                <div v-if="day.commission" class="flex items-center space-x-1 text-orange-500">
+                                    <i class="pi pi-star-fill !text-[9px]"></i>
                                 </div>
                             </div>
 
                             <!-- Contenido Célula -->
-
-                            <!-- Festivo Laborado -->
                             <template v-if="getHolidayInfo(day.date) && day.check_in">
                                 <div class="flex flex-col gap-0 leading-none">
                                     <span class="text-[10px] font-bold text-yellow-900 whitespace-nowrap">{{
@@ -503,14 +500,12 @@ const getCellClass = (day) => {
                                         formatTime12h(day.check_out) || '--:--' }}</span>
                                 </div>
                             </template>
-                            <!-- Festivo Automático -->
                             <template v-else-if="getHolidayInfo(day.date)">
                                 <div
                                     class="text-[9px] font-bold leading-tight px-1 break-words w-full line-clamp-2 text-emerald-800">
                                     {{ getHolidayInfo(day.date).name || 'Festivo' }}
                                 </div>
                             </template>
-                            <!-- Asistencia Normal -->
                             <template v-else-if="day.incident_type === 'asistencia' && day.check_in">
                                 <div class="flex flex-col gap-0 leading-none">
                                     <span class="text-[10px] font-bold text-surface-800 whitespace-nowrap">{{
@@ -519,7 +514,6 @@ const getCellClass = (day) => {
                                         formatTime12h(day.check_out) || '--:--' }}</span>
                                 </div>
                             </template>
-                            <!-- Otras incidencias -->
                             <template v-else-if="day.incident_type !== 'asistencia'">
                                 <div class="text-[9px] font-bold leading-tight px-1 break-words w-full line-clamp-2">
                                     {{incidentOptions.find(o => o.value === day.incident_type)?.label ||
@@ -531,13 +525,6 @@ const getCellClass = (day) => {
                             </template>
                         </div>
                     </div>
-                </div>
-
-                <!-- Empty State Móvil -->
-                <div v-if="filteredEmployees.length === 0"
-                    class="text-center p-8 text-surface-500 bg-white rounded-2xl border border-dashed border-surface-300">
-                    <i class="pi pi-search text-2xl mb-2 opacity-50"></i>
-                    <p>No se encontraron empleados.</p>
                 </div>
             </div>
         </div>
@@ -561,7 +548,6 @@ const getCellClass = (day) => {
                         <div class="text-sm text-surface-500 capitalize">
                             {{ dayjs(selectedDay.date).format('dddd, D [de] MMMM YYYY') }}
                         </div>
-                        <!-- Alerta si es festivo -->
                         <div v-if="getHolidayInfo(selectedDay.date)"
                             class="mt-1 inline-flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
                             <i class="pi pi-calendar-plus"></i> {{ getHolidayInfo(selectedDay.date).name }}
@@ -569,17 +555,15 @@ const getCellClass = (day) => {
                     </div>
                 </div>
 
-                <!-- === EVIDENCIA FOTOGRÁFICA (NUEVO) === -->
+                <!-- === EVIDENCIA FOTOGRÁFICA === -->
                 <div v-if="currentPhotos.checkIn || currentPhotos.checkOut"
                     class="flex gap-6 justify-center bg-surface-50 p-3 rounded-xl border border-surface-200">
-
                     <div v-if="currentPhotos.checkIn" class="flex flex-col items-center gap-1 group">
                         <span class="text-[10px] uppercase font-bold text-surface-500">Entrada</span>
                         <Image :src="currentPhotos.checkIn" alt="Entrada" width="80" preview
                             class="rounded-lg overflow-hidden shadow-sm border border-surface-200 transition-transform hover:scale-105"
                             :pt="{ img: { class: 'object-cover w-20 h-20' } }" />
                     </div>
-
                     <div v-if="currentPhotos.checkOut" class="flex flex-col items-center gap-1 group">
                         <span class="text-[10px] uppercase font-bold text-surface-500">Salida</span>
                         <Image :src="currentPhotos.checkOut" alt="Salida" width="80" preview
@@ -596,8 +580,7 @@ const getCellClass = (day) => {
                         :class="{ 'p-invalid': form.errors.incident_type }" />
                 </div>
 
-                <!-- Campos de Hora (Condicionales) -->
-                <!-- AHORA CON FORMATO 12h PARA EDICIÓN -->
+                <!-- Campos de Hora y Comisión (Condicionales) -->
                 <div v-if="form.incident_type === 'asistencia'"
                     class="bg-surface-50 p-4 rounded-xl border border-surface-200 animate-fade-in space-y-4">
                     <div class="grid grid-cols-2 gap-4">
@@ -613,8 +596,18 @@ const getCellClass = (day) => {
                         </div>
                     </div>
 
+                    <!-- === NUEVO CAMPO: COMISIÓN === -->
+                     <div class="flex flex-col gap-2 pt-2 border-t border-surface-200/50">
+                        <label class="font-bold text-surface-700 text-sm flex items-center gap-2">
+                            <i class="pi pi-star text-orange-500"></i> Comisión Extra ($)
+                        </label>
+                        <InputNumber v-model="form.commission_amount" mode="currency" currency="MXN" locale="es-MX" 
+                            placeholder="$0.00" class="w-full" :min="0" :max="10000" showButtons />
+                        <small class="text-surface-500 text-xs">Monto que se sumará al sueldo de este día.</small>
+                    </div>
+
                     <!-- Switch Ignorar Retardo -->
-                    <div class="flex items-center justify-between pt-2">
+                    <div class="flex items-center justify-between pt-2 border-t border-surface-200/50">
                         <div class="flex flex-col">
                             <span class="text-sm font-bold text-surface-700">Perdonar retardo</span>
                             <span class="text-xs text-surface-500">Excluir del cálculo de bonos</span>
@@ -634,10 +627,26 @@ const getCellClass = (day) => {
             </div>
 
             <template #footer>
-                <div class="flex justify-end gap-2 pt-4 border-t border-surface-100">
-                    <Button label="Cancelar" icon="pi pi-times" text @click="editDialog = false" severity="secondary" />
-                    <Button label="Guardar Registro" icon="pi pi-check" @click="saveIncident" :loading="form.processing"
-                        class="!bg-orange-600 !border-orange-600 hover:!bg-orange-700" />
+                <div class="flex items-center w-full pt-4 border-t border-surface-100">
+                    <!-- BOTÓN ELIMINAR (Lado Izquierdo) -->
+                    <div class="mr-auto">
+                        <Button 
+                            v-if="form.attendance_id" 
+                            label="Eliminar registro" 
+                            icon="pi pi-trash" 
+                            severity="danger" 
+                            text 
+                            @click="deleteIncident" 
+                            :loading="isDeleting"
+                        />
+                    </div>
+                    
+                    <!-- BOTONES ACCIÓN (Lado Derecho) -->
+                    <div class="flex gap-2">
+                        <Button label="Cancelar" icon="pi pi-times" text @click="editDialog = false" severity="secondary" />
+                        <Button label="Guardar Registro" icon="pi pi-check" @click="saveIncident" :loading="form.processing"
+                            class="!bg-orange-600 !border-orange-600 hover:!bg-orange-700" />
+                    </div>
                 </div>
             </template>
         </Dialog>

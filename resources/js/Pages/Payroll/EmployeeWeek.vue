@@ -438,6 +438,11 @@ onBeforeUnmount(() => {
                                         <div v-else-if="day.is_late" class="flex items-center gap-1 bg-red-100 px-1.5 py-0.5 rounded text-[10px] text-red-700 font-bold border border-red-200">
                                             <i class="pi pi-clock text-[10px]"></i> Retardo
                                         </div>
+
+                                        <!-- Badge de Comisión -->
+                                        <div v-if="day.commission" class="flex items-center gap-1 bg-orange-100 px-1.5 py-0.5 rounded text-[10px] text-orange-700 font-bold border border-orange-200">
+                                            <i class="pi pi-star-fill text-[8px]"></i> +{{ formatCurrency(day.commission) }}
+                                        </div>
                                     </div>
                                 </div>
                             </div>
