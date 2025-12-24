@@ -158,7 +158,11 @@ class AttendanceTerminalController extends Controller
 
                 $isLate = false;
                 if ($schedule && $schedule->shift) {
-                    $entryLimit = Carbon::parse($today . ' ' . $schedule->shift->start_time);
+                    // FIX: Double date specification error
+                    // Extraemos SOLO la hora del turno para evitar concatenar dos fechas (2025-12-24 2025-12-24 10:00:00)
+                    $shiftTimeStr = Carbon::parse($schedule->shift->start_time)->format('H:i:s');
+                    
+                    $entryLimit = Carbon::parse($today . ' ' . $shiftTimeStr);
                     if ($now->greaterThan($entryLimit)) {
                         $isLate = true;
                     }
@@ -182,8 +186,12 @@ class AttendanceTerminalController extends Controller
             // --- CHECK-OUT ---
             elseif ($attendance->check_out === null) {
                 // Evitar doble check inmediato (5 min)
-                $checkInTime = Carbon::parse($attendance->date->format('Y-m-d') . ' ' . $attendance->check_in);
-                if ($checkInTime->diffInMinutes($now) < 5) {
+                // FIX: Double date specification error
+                // Parseamos explícitamente solo la hora del check_in para asegurarnos
+                $checkInTimeOnly = Carbon::parse($attendance->check_in)->format('H:i:s');
+                $checkInDateTime = Carbon::parse($attendance->date->format('Y-m-d') . ' ' . $checkInTimeOnly);
+                
+                if ($checkInDateTime->diffInMinutes($now) < 1) {
                     return response()->json([
                         'status' => 'warning',
                         'message' => 'Entrada muy reciente. Espera para registrar salida.'
@@ -216,7 +224,6 @@ class AttendanceTerminalController extends Controller
                 'time' => $now->format('h:i A'),
                 'message' => $message
             ]);
-
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error("Attendance Error: " . $e->getMessage());
