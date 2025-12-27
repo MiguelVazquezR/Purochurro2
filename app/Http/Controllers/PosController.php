@@ -34,7 +34,6 @@ class PosController extends Controller
             'products' => Product::where('is_active', true)
                 ->where('is_sellable', true)
                 ->with('inventories') // Cargamos la relación completa
-                ->orderBy('name', 'asc') // Orden Alfabetico
                 ->get()
                 ->map(function ($product) {
                     return [
