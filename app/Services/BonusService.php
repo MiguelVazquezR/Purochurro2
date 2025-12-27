@@ -12,13 +12,13 @@ class BonusService
      * Calcula los bonos recurrentes para un empleado basado en las estadísticas del periodo.
      *
      * @param Employee $employee
-     * @param array $periodStats Estadísticas acumuladas del periodo (retardos totales, faltas, etc.)
-     * @param array $dailyStats Estadísticas desglosadas por día (para bonos de evaluación diaria)
+     * @param array $periodStats Estadísticas acumuladas (attendance_days, late_minutes, etc.)
+     * @param array $dailyStats Estadísticas desglosadas por día
      * @return array Estructura ['total_amount' => float, 'details' => array]
      */
     public function calculate(Employee $employee, array $periodStats, array $dailyStats): array
     {
-        // Obtener bonos recurrentes activos (tanto el bono global como la asignación al empleado)
+        // Obtener bonos recurrentes activos
         $activeBonuses = $employee->recurringBonuses()
             ->where('bonuses.is_active', true)
             ->wherePivot('is_active', true)
@@ -26,6 +26,9 @@ class BonusService
 
         $totalAmount = 0;
         $details = [];
+        
+        // Extraemos días trabajados del periodo para uso global
+        $workedDays = (float) ($periodStats['attendance_days'] ?? 0);
 
         foreach ($activeBonuses as $bonus) {
             $baseAmount = (float) ($bonus->pivot->amount ?? $bonus->amount);
@@ -48,44 +51,47 @@ class BonusService
             $scope = $config['scope'] ?? 'period_total';
             $concept = $config['concept'] ?? '';
             
-            // --- CORRECCIÓN: Definir comportamiento ---
-            // Si el concepto es "Minutos extra" (extra_minutes), forzamos 'pay_per_unit'
-            // para asegurar que se pague por minuto y no por el hecho de tener extras (fixed_amount).
             $behavior = $config['behavior'] ?? 'fixed_amount';
-            if ($concept === 'extra_minutes') {
+            // Forzar pago por unidad para minutos extra si no se especificó lo contrario
+            if ($concept === 'extra_minutes' && $behavior !== 'fixed_amount') {
                 $behavior = 'pay_per_unit';
             }
 
-            // A. Evaluación Diaria (Ej: $50 por cada día que llegue temprano o $1 por min extra diario)
+            // A. Evaluación Diaria
             if ($scope === 'daily') {
                 foreach ($dailyStats as $date => $stat) {
-                    // Validaciones de pre-requisitos
                     if ($concept === 'attendance' && empty($stat['is_attendance'])) continue;
                     if (($concept === 'late_minutes' || $concept === 'extra_minutes') && empty($stat['is_attendance'])) continue;
 
                     $value = $this->extractValue($concept, $stat);
                     
                     if ($this->checkRule($value, $config['operator'], $config['value'])) {
+                        // En scope daily, "días trabajados" es 1 si asistió ese día específico
+                        $dayWorked = $stat['is_attendance'] ? 1 : 0;
+                        
                         $bonusPay += $this->calculateAmount(
-                            $behavior, // Usamos la variable local corregida
+                            $behavior,
                             $baseAmount, 
                             $value, 
                             $config['value'], 
-                            $config['operator']
+                            $config['operator'],
+                            $dayWorked 
                         );
                     }
                 }
             } 
-            // B. Evaluación Global del Periodo (Ej: $500 si en toda la semana tuvo 0 retardos)
+            // B. Evaluación Global del Periodo
             else {
                 $value = $this->extractValue($concept, $periodStats);
+                
                 if ($this->checkRule($value, $config['operator'], $config['value'])) {
                     $bonusPay += $this->calculateAmount(
-                        $behavior, // Usamos la variable local corregida
+                        $behavior,
                         $baseAmount, 
                         $value, 
                         $config['value'], 
-                        $config['operator']
+                        $config['operator'],
+                        $workedDays // Pasamos el total de días trabajados en el periodo
                     );
                 }
             }
@@ -99,7 +105,8 @@ class BonusService
                     'type' => 'recurring_rule',
                     'meta' => [
                         'concept' => $concept,
-                        'scope' => $scope
+                        'scope' => $scope,
+                        'behavior' => $behavior
                     ]
                 ];
             }
@@ -111,16 +118,12 @@ class BonusService
         ];
     }
 
-    /**
-     * Extrae el valor numérico a evaluar según el concepto configurado.
-     */
     private function extractValue(string $concept, array $data): float
     {
         return match($concept) {
             'late_minutes' => (float) ($data['late_minutes'] ?? 0),
             'extra_minutes' => (float) ($data['extra_minutes'] ?? 0),
             'unjustified_absences' => (float) ($data['unjustified_absences'] ?? 0),
-            // Si es daily stats, attendance_days no existe, usamos is_attendance booleano
             'attendance' => isset($data['attendance_days']) 
                 ? (float) $data['attendance_days'] 
                 : (float) ($data['is_attendance'] ? 1 : 0),
@@ -129,35 +132,48 @@ class BonusService
     }
 
     /**
-     * Calcula el monto final a pagar (Monto fijo o Pago por unidad).
+     * Calcula el monto final considerando el comportamiento.
+     * * @param string $behavior Tipo de pago (fixed_amount, pay_per_unit, per_day_worked)
+     * @param float $baseAmount Monto base definido en el bono
+     * @param float $actualValue Valor real de la métrica evaluada (ej. 10 minutos tarde)
+     * @param float $targetValue Valor objetivo de la regla (ej. 15 minutos)
+     * @param string $operator Operador de comparación
+     * @param float $workedDays Días trabajados en el contexto (1 para diario, N para periodo)
      */
-    private function calculateAmount(string $behavior, float $baseAmount, float $actualValue, float $targetValue, string $operator): float
-    {
-        // Opción A: Monto fijo si se cumple la regla
+    private function calculateAmount(
+        string $behavior, 
+        float $baseAmount, 
+        float $actualValue, 
+        float $targetValue, 
+        string $operator,
+        float $workedDays = 0
+    ): float {
+        
+        // Opción A: Monto fijo único si se cumple la regla
+        // Ej: $500 totales si retardos < 15 min en la semana
         if ($behavior === 'fixed_amount') {
             return $baseAmount;
         }
         
-        // Opción B: Pago por unidad (Ej: $10 por cada minuto extra)
+        // Opción B: Pago por unidad de la métrica evaluada
+        // Ej: $10 por cada minuto extra.
         if ($behavior === 'pay_per_unit') {
-            // Si la regla es "Mayor que X", pagamos solo por el excedente
-            // Ej: Regla > 0 min. Actual 20. Paga (20-0) * Base.
             if ($operator === '>') {
                 $units = max(0, $actualValue - $targetValue);
                 return $units * $baseAmount;
             }
-            
-            // En otros casos (ej: pagar por cada minuto extra sin umbral mínimo, o donde umbral es 0)
-            // Ej: Regla >= 0. Actual 20. Paga 20 * Base.
             return $actualValue * $baseAmount;
+        }
+
+        // Opción C: Pago por día trabajado si se cumple la condición
+        // Ej: Si retardos < 15 min en la semana, paga $50 por cada día asistido ($50 * 6 = $300)
+        if ($behavior === 'per_day_worked') {
+            return $baseAmount * $workedDays;
         }
 
         return 0.0;
     }
 
-    /**
-     * Evalúa la condición lógica.
-     */
     private function checkRule($actual, $operator, $target): bool
     {
         $actual = (float)$actual;

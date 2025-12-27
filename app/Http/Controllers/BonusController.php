@@ -37,7 +37,8 @@ class BonusController extends Controller
             'rule_config.operator' => 'required_with:rule_config|string|in:<=,>=,=,>,<',
             'rule_config.value' => 'required_with:rule_config|numeric',
             'rule_config.scope' => 'required_with:rule_config|string|in:daily,period_total,period_accumulated',
-            'rule_config.behavior' => 'required_with:rule_config|string|in:fixed_amount,pay_per_unit',
+            // AQUI AGREGAMOS 'per_day_worked'
+            'rule_config.behavior' => 'required_with:rule_config|string|in:fixed_amount,pay_per_unit,per_day_worked',
         ]);
 
         Bonus::create($validated);
@@ -67,7 +68,8 @@ class BonusController extends Controller
             'rule_config.operator' => 'required_with:rule_config|string|in:<=,>=,=,>,<',
             'rule_config.value' => 'required_with:rule_config|numeric',
             'rule_config.scope' => 'required_with:rule_config|string|in:daily,period_total,period_accumulated',
-            'rule_config.behavior' => 'required_with:rule_config|string|in:fixed_amount,pay_per_unit',
+            // AQUI AGREGAMOS 'per_day_worked'
+            'rule_config.behavior' => 'required_with:rule_config|string|in:fixed_amount,pay_per_unit,per_day_worked',
         ]);
 
         $bonus->update($validated);

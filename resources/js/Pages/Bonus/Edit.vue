@@ -1,15 +1,8 @@
 <script setup>
-import { ref, watch } from 'vue';
-import { Head, Link, useForm } from '@inertiajs/vue3';
+import { ref, watch, computed } from 'vue';
+import { Link, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { useToast } from 'primevue/usetoast';
-import InputText from 'primevue/inputtext';
-import InputNumber from 'primevue/inputnumber';
-import Textarea from 'primevue/textarea';
-import Button from 'primevue/button';
-import ToggleSwitch from 'primevue/toggleswitch';
-import SelectButton from 'primevue/selectbutton';
-import Select from 'primevue/select';
 
 const props = defineProps({
     bonus: Object,
@@ -55,9 +48,11 @@ const scopes = [
     { label: 'Acumulado del Periodo', value: 'period_accumulated' },
 ];
 
+// Actualizado: Agregada opción 'per_day_worked'
 const behaviors = [
-    { label: 'Otorgar Monto Fijo', value: 'fixed_amount' },
+    { label: 'Otorgar Monto Único', value: 'fixed_amount' },
     { label: 'Pagar por Unidad (ej. por minuto)', value: 'pay_per_unit' },
+    { label: 'Pagar por Día Trabajado', value: 'per_day_worked' },
 ];
 
 watch(hasRules, (val) => {
@@ -89,6 +84,17 @@ const submit = () => {
         }
     });
 };
+
+// Computed para el texto dinámico del label de monto (Igual que en Create)
+const amountLabel = computed(() => {
+    if (!hasRules.value || !form.rule_config) return 'Valor del Bono';
+    
+    switch (form.rule_config.behavior) {
+        case 'pay_per_unit': return 'Pago por Unidad (ej. cada minuto)';
+        case 'per_day_worked': return 'Monto por Día Trabajado';
+        default: return 'Monto Fijo Total';
+    }
+});
 </script>
 
 <template>
@@ -205,8 +211,8 @@ const submit = () => {
                                 </div>
 
                                 <div class="flex flex-col gap-2">
-                                    <label for="amount" class="font-medium text-surface-700">
-                                        {{ hasRules && form.rule_config?.behavior === 'pay_per_unit' ? 'Pago por Unidad (ej. por minuto)' : 'Valor del Bono' }}
+                                    <label for="amount" class="font-medium text-surface-700 transition-all duration-300">
+                                        {{ amountLabel }}
                                     </label>
                                     <InputNumber 
                                         id="amount" 
@@ -322,7 +328,10 @@ const submit = () => {
                                         <p>
                                             Se pagará 
                                             <strong class="mr-1">${{ form.amount }}</strong>
-                                            <strong class="text-blue-900">{{ form.rule_config.behavior === 'fixed_amount' ? 'el monto fijo' : 'por cada unidad' }}</strong>
+                                            <strong class="text-blue-900" v-if="form.rule_config.behavior === 'fixed_amount'">en total (fijo)</strong>
+                                            <strong class="text-blue-900" v-else-if="form.rule_config.behavior === 'pay_per_unit'">por cada unidad</strong>
+                                            <strong class="text-blue-900" v-else-if="form.rule_config.behavior === 'per_day_worked'">por cada día trabajado</strong>
+                                            
                                             cuando 
                                             <strong>{{ concepts.find(c => c.value === form.rule_config.concept)?.label }}</strong>
                                             sea 
