@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Enums\IncidentType;
 use App\Models\Attendance;
 use App\Models\Employee;
+use App\Models\Expense;
 use App\Models\Holiday;
 use App\Models\PayrollReceipt;
 use App\Models\WorkSchedule;
@@ -13,7 +14,6 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
 class PayrollController extends Controller
@@ -23,13 +23,18 @@ class PayrollController extends Controller
         $currentStart = Carbon::now()->startOfWeek(Carbon::SUNDAY)->format('Y-m-d');
         $weekStarts = collect([$currentStart]);
 
+        // CORRECCIÓN: Normalizar fechas de recibos a string Y-m-d para evitar duplicados en el unique()
         $receiptStarts = PayrollReceipt::select('start_date')
             ->distinct()
-            ->pluck('start_date');
+            ->pluck('start_date')
+            ->map(fn($date) => Carbon::parse($date)->format('Y-m-d'));
+            
         $weekStarts = $weekStarts->merge($receiptStarts);
 
+        // CORRECCIÓN: Normalizar fechas de asistencias
         $attendanceDates = Attendance::select('date')->distinct()->get()
             ->map(fn($a) => Carbon::parse($a->date)->startOfWeek(Carbon::SUNDAY)->format('Y-m-d'));
+            
         $weekStarts = $weekStarts->merge($attendanceDates);
 
         $weeks = $weekStarts->unique()
@@ -471,6 +476,7 @@ class PayrollController extends Controller
         DB::beginTransaction();
         try {
             $receiptsCount = 0;
+            $totalPayrollAmount = 0; // --- ACUMULADOR DE TOTAL PAGADO ---
 
             foreach ($employees as $employee) {
                 $calc = $payrollService->calculate($employee, $start, $end);
@@ -480,7 +486,6 @@ class PayrollController extends Controller
                 $finalBreakdownData['commissions_total'] = $calc['total_commissions'];
 
                 // CORRECCIÓN: Guardar el detalle de comisiones ORIGINAL del servicio
-                // Esto asegura que al reimprimir, los montos sean exactos (ej. $10, $50) y no promedios.
                 $finalBreakdownData['commissions_detail'] = $calc['breakdown']['commissions'] ?? [];
 
                 PayrollReceipt::create([
@@ -502,6 +507,8 @@ class PayrollController extends Controller
                     auth()->id()
                 );
 
+                // --- Sumar al total general ---
+                $totalPayrollAmount += $calc['total_pay'];
                 $receiptsCount++;
             }
 
@@ -509,6 +516,17 @@ class PayrollController extends Controller
             foreach ($attendances as $attendance) {
                 $attendance->clearMediaCollection('check_in_photo');
                 $attendance->clearMediaCollection('check_out_photo');
+            }
+
+            // --- NUEVO: REGISTRAR GASTO AUTOMÁTICO ---
+            if ($request->mark_as_paid && $totalPayrollAmount > 0) {
+                Expense::create([
+                    'concept' => 'Nómina Semanal ' . $start->format('d/m') . ' - ' . $end->format('d/m/Y'),
+                    'amount' => $totalPayrollAmount,
+                    'date' => now(), // Fecha de hoy (día del cierre)
+                    'notes' => "Cierre de nómina. {$receiptsCount} recibos generados.",
+                    'user_id' => auth()->id(), // El admin que cierra la nómina
+                ]);
             }
 
             DB::commit();

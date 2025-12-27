@@ -125,7 +125,9 @@ const appendNumber = (n) => {
 const backspace = () => keypadInput.value = keypadInput.value.length > 1 ? keypadInput.value.slice(0, -1) : '0';
 
 const changeAmount = computed(() => (parseFloat(keypadInput.value) || 0) - cartTotal.value);
-const canPay = computed(() => (parseFloat(keypadInput.value) || 0) >= cartTotal.value && cart.value.length > 0);
+
+// [MODIFICADO] Ahora permite pagar siempre que haya items, sin importar el monto ingresado
+const canPay = computed(() => cart.value.length > 0);
 
 const openPayment = () => {
     if (!cart.value.length) return toast.add({ severity: 'warn', summary: 'Carrito vacío', life: 2000 });
@@ -144,10 +146,17 @@ const processSale = () => {
     
     paymentForm.items = cart.value.map(i => ({ product_id: i.product_id, quantity: i.quantity, price: i.price }));
     
+    // [MODIFICADO] Si el cajero deja en 0, asumimos pago exacto
+    const inputVal = parseFloat(keypadInput.value) || 0;
+    paymentForm.cash_received = inputVal === 0 ? cartTotal.value : inputVal;
+    
     paymentForm.post(route('pos.store-sale'), {
         preserveScroll: true,
         onSuccess: () => {
-            toast.add({ severity: 'success', summary: 'Venta exitosa', detail: `Cambio: ${formatCurrency(changeAmount.value)}`, life: 5000 });
+            // Si fue pago exacto (input 0), el cambio es 0
+            const finalChange = inputVal === 0 ? 0 : changeAmount.value;
+            
+            toast.add({ severity: 'success', summary: 'Venta exitosa', detail: `Cambio: ${formatCurrency(finalChange)}`, life: 5000 });
             showPaymentModal.value = false;
             clearCart();
             processingPayment.value = false;
@@ -591,7 +600,7 @@ onBeforeUnmount(() => {
 
                             <div class="bg-white p-4 rounded-2xl border border-indigo-100 shadow-sm">
                                 <span class="text-indigo-900 font-bold text-xs uppercase tracking-wider block mb-1">Efectivo Recibido</span>
-                                <span class="text-3xl font-mono font-bold text-indigo-600 block truncate">{{ keypadInput === '' ? '$0.00' : '$' + keypadInput }}</span>
+                                <span class="text-3xl font-mono font-bold text-indigo-600 block truncate">{{ keypadInput === '0' || keypadInput === '' ? '$0.00' : '$' + keypadInput }}</span>
                             </div>
 
                             <div class="flex justify-between items-end border-b border-dashed border-gray-300 pb-2">

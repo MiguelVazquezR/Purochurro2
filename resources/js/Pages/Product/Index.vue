@@ -241,12 +241,19 @@ const deleteProduct = (product) => {
                         </template>
                     </Column>
 
-                    <!-- Precios -->
-                    <Column field="price" header="Precio" sortable class="w-[110px]">
+                    <!-- Precios (Modificado para mostrar precio empleado) -->
+                    <Column field="price" header="Precio" sortable class="w-[120px]">
                         <template #body="slotProps">
-                            <span class="text-surface-900 font-semibold text-sm">
-                                {{ formatCurrency(slotProps.data.price) }}
-                            </span>
+                            <div class="flex flex-col items-start gap-0.5">
+                                <span class="text-surface-900 font-bold text-sm">
+                                    {{ formatCurrency(slotProps.data.price) }}
+                                </span>
+                                <!-- Precio Empleado -->
+                                <div v-if="slotProps.data.employee_price > 0" class="flex items-center gap-1 text-[10px] font-medium text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100" title="Precio Empleado">
+                                    <i class="pi pi-id-card text-[9px]"></i>
+                                    <span>{{ formatCurrency(slotProps.data.employee_price) }}</span>
+                                </div>
+                            </div>
                         </template>
                     </Column>
 
