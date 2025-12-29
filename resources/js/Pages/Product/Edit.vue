@@ -220,7 +220,7 @@ const submit = () => {
                                     <small v-if="form.errors.employee_price" class="text-red-500">{{ form.errors.employee_price }}</small>
                                 </div>
 
-                                <div class="flex flex-col gap-2">
+                                <div v-if="$page.props.auth.user.id == 1" class="flex flex-col gap-2">
                                     <label for="cost" class="font-medium text-surface-700">Costo (insumos)</label>
                                     <InputNumber id="cost" v-model="form.cost" mode="currency" currency="MXN" locale="es-MX" class="w-full" placeholder="$0.00" :invalid="!!form.errors.cost" />
                                     <small v-if="form.errors.cost" class="text-red-500">{{ form.errors.cost }}</small>
