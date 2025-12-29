@@ -1,14 +1,10 @@
 <script setup>
 import { ref } from 'vue';
-import { Head, Link, router } from '@inertiajs/vue3';
+import { Link, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { useConfirm } from "primevue/useconfirm";
 import { useToast } from "primevue/usetoast";
 import Image from 'primevue/image';
-import DataTable from 'primevue/datatable';
-import Column from 'primevue/column';
-import Tag from 'primevue/tag';
-import Button from 'primevue/button';
 
 const props = defineProps({
     product: Object,
@@ -137,7 +133,7 @@ const getMovementSeverity = (type) => {
                     </div>
                 </div>
                 
-                <div class="flex gap-2">
+                <div v-if="$page.props.auth.user.id == 1" class="flex gap-2">
                     <Button 
                         :icon="product.is_active ? 'pi pi-eye-slash' : 'pi pi-eye'" 
                         :label="product.is_active ? 'Desactivar' : 'Activar'"
@@ -277,7 +273,7 @@ const getMovementSeverity = (type) => {
                             <span class="text-xs font-bold text-surface-400 uppercase tracking-wider">Precio empleado</span>
                             <span class="text-xl font-bold text-surface-700">{{ formatCurrency(product.employee_price) }}</span>
                         </div>
-                        <div class="bg-surface-50 rounded-3xl border border-surface-200 p-5 flex flex-col gap-1 opacity-75 hover:opacity-100 transition-opacity">
+                        <div v-if="$page.props.auth.user.id == 1" class="bg-surface-50 rounded-3xl border border-surface-200 p-5 flex flex-col gap-1 opacity-75 hover:opacity-100 transition-opacity">
                             <span class="text-xs font-bold text-surface-400 uppercase tracking-wider">Costo</span>
                             <span class="text-xl font-bold text-surface-600">{{ formatCurrency(product.cost) }}</span>
                         </div>

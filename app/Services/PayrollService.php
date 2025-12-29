@@ -12,6 +12,7 @@ use App\Models\WorkSchedule;
 use Carbon\Carbon;
 use App\Services\BonusService;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB; // <-- Importante: Agregado para usar DB::raw
 
 class PayrollService
 {
@@ -32,10 +33,16 @@ class PayrollService
             ->get()
             ->keyBy(fn($a) => $a->date->format('Y-m-d'));
 
-        $holidays = Holiday::whereDate('date', '>=', $start)
-            ->whereDate('date', '<=', $end)
+        // --- CORRECCIÓN: Obtener días festivos ignorando el año ---
+        // Obtenemos los meses involucrados en el periodo (ej: Si la semana es Dic 29 a Ene 4, busca en mes 12 y 1)
+        $months = [$start->month, $end->month];
+        $months = array_unique($months);
+
+        // Buscamos festivos cuyo mes coincida, sin importar el año (ej. 2024, 2025, etc.)
+        $holidays = Holiday::whereIn(DB::raw('MONTH(date)'), $months)
             ->get()
-            ->keyBy(fn($h) => $h->date->format('Y-m-d'));
+            ->keyBy(fn($h) => $h->date->format('m-d')); // <-- IMPORTANTE: Indexar por Mes-Día
+        // -----------------------------------------------------------
 
         $schedules = WorkSchedule::with('shift')
             ->where('employee_id', $employee->id)
@@ -92,9 +99,15 @@ class PayrollService
         $current = $start->copy();
         while ($current <= $end) {
             $dateStr = $current->format('Y-m-d');
+            $monthDay = $current->format('m-d'); // --- Clave para buscar festivo (ej. "01-01") ---
+            
             $attendance = $attendances->get($dateStr);
             $schedule = $schedules->get($dateStr);
-            $holiday = $holidays->get($dateStr);
+            
+            // --- CORRECCIÓN: Buscar festivo usando solo m-d ---
+            $holiday = $holidays->get($monthDay); 
+            // --------------------------------------------------
+            
             $operation = $dailyOperations->get($dateStr);
 
             $dayPay = 0;
@@ -142,50 +155,43 @@ class PayrollService
                     }
                 }
 
-                // --- NUEVO: Cálculo Automático de Minutos Extras (Jornada Real vs Jornada Esperada) ---
+                // Cálculo Automático de Minutos Extras
                 if ($attendance->check_in && $attendance->check_out && $schedule?->shift) {
                     try {
-                        // 1. Calcular Duración del Turno (Expected)
                         $shiftStartStr = Carbon::parse($schedule->shift->start_time)->format('H:i:s');
                         $shiftEndStr = Carbon::parse($schedule->shift->end_time)->format('H:i:s');
                         
                         $expectedStart = Carbon::parse("{$dateStr} {$shiftStartStr}");
                         $expectedEnd = Carbon::parse("{$dateStr} {$shiftEndStr}");
                         
-                        // Ajuste si el turno cruza la medianoche
                         if ($expectedEnd->lessThan($expectedStart)) {
                             $expectedEnd->addDay();
                         }
                         
                         $expectedMinutes = $expectedStart->diffInMinutes($expectedEnd);
 
-                        // 2. Calcular Duración Trabajada (Actual)
                         $actualInStr = Carbon::parse($attendance->check_in)->format('H:i:s');
                         $actualOutStr = Carbon::parse($attendance->check_out)->format('H:i:s');
                         
                         $workedStart = Carbon::parse("{$dateStr} {$actualInStr}");
                         $workedEnd = Carbon::parse("{$dateStr} {$actualOutStr}");
                         
-                        // Ajuste si la salida es al día siguiente
                         if ($workedEnd->lessThan($workedStart)) {
                             $workedEnd->addDay();
                         }
 
-                        // NOTA: Tomamos los tiempos reales. Si llegó antes, workedStart es anterior a expectedStart.
                         $workedMinutes = $workedStart->diffInMinutes($workedEnd);
 
-                        // 3. Obtener diferencia (Solo si trabajó más de lo esperado)
                         if ($workedMinutes > $expectedMinutes) {
                             $autoExtras = $workedMinutes - $expectedMinutes;
                             $dayExtraMins += $autoExtras;
                         }
 
                     } catch (\Exception $e) {
-                        // Log::error("Error calculando extras: " . $e->getMessage());
                     }
                 }
 
-                // Sumar extras manuales si existieran (columna legacy)
+                // Sumar extras manuales
                 $dayExtraMins += ($attendance->extra_hours ?? 0) * 60;
 
                 if ($attendance->is_late && !$attendance->late_ignored) {
@@ -237,9 +243,17 @@ class PayrollService
                         break;
                 }
             } else {
-                $status = 'Sin Registro';
-                if ($schedule && $schedule->shift_id) {
-                    $dayIsAbsent = true;
+                // --- Validar si es festivo cuando no hay asistencia ---
+                if ($holiday) {
+                    $isPayable = true;
+                    $status = "Feriado ({$holiday->name})";
+                    $dayCategory = 'holiday_rest';
+                    $counters['holidays_rest']++;
+                } else {
+                    $status = 'Sin Registro';
+                    if ($schedule && $schedule->shift_id) {
+                        $dayIsAbsent = true;
+                    }
                 }
             }
 
@@ -248,21 +262,23 @@ class PayrollService
             $baseCommission = 0;
             $salesRef = 0;
 
+            // CASO 1: Comisión Manual / Guardada en Attendance
             if ($attendance && !is_null($attendance->commission_amount)) {
-                $finalCommission = $attendance->commission_amount;
+                // CORRECCIÓN: Tratamos el monto guardado como la "Comisión Base" y multiplicamos por turnos
+                $baseCommission = $attendance->commission_amount;
+                $finalCommission = $baseCommission * $shiftsCount;
+                
+                // Obtenemos ventas solo por referencia visual en el recibo
                 if ($operation) {
                     $salesRef = $operation->sales->sum('total');
-                    $refProduct = Product::find(1);
-                    if ($refProduct && $refProduct->price > 0) {
-                        $baseCommission = floor(($salesRef / ($refProduct->price * 10)) / 10) * 10;
-                    }
                 }
             }
+            // CASO 2: Cálculo Automático (si no hay manual)
             elseif ($dayIsAttendance && $operation && $operation->is_closed) {
                 $salesRef = $operation->sales->sum('total');
                 if ($salesRef > 0) {
                     $refProduct = Product::find(1);
-                    if ($refProduct) {
+                    if ($refProduct && $refProduct->price > 0) {
                         $baseCommission = floor(($salesRef / ($refProduct->price * 10)) / 10) * 10;
                         $finalCommission = $baseCommission * $shiftsCount;
                     }
@@ -277,7 +293,7 @@ class PayrollService
                 $details['commissions'][] = [
                     'date' => $dateStr,
                     'amount' => $finalCommission,
-                    'base_amount' => $baseCommission > 0 ? $baseCommission : ($shiftsCount > 0 ? $finalCommission / $shiftsCount : 0),
+                    'base_amount' => $baseCommission, // Ahora siempre mostramos la base correctamente
                     'is_double' => $shiftsCount > 1,
                     'sales_ref' => $salesRef
                 ];
@@ -293,7 +309,9 @@ class PayrollService
             }
 
             if ($holiday) {
+                Log::info("Procesando feriado para {$employee->first_name} {$employee->last_name} en {$dateStr}");
                 if ($attendance && $attendance->incident_type === IncidentType::ASISTENCIA) {
+                    Log::info("Empleado trabajó en feriado.");
                     $multiplier = $holiday->pay_multiplier;
                     $dayPay = $employee->base_salary * $multiplier * $shiftsCount;
 
@@ -302,11 +320,14 @@ class PayrollService
 
                     $status = "Feriado Laborado ({$holiday->name})";
                     $dayCategory = 'holiday_worked';
-                } elseif ($isPayable && ($attendance->incident_type !== IncidentType::ASISTENCIA) && $dayCategory !== 'incapacity') {
+                } elseif ($isPayable && ($attendance?->incident_type !== IncidentType::ASISTENCIA) && $dayCategory !== 'incapacity') {
+                    Log::info("Empleado no trabajó en feriado, pero tiene derecho a pago.");
                     $status = "Feriado ({$holiday->name})";
                     $dayCategory = 'holiday_rest';
-                    if ($attendance->incident_type !== IncidentType::DIA_FESTIVO) {
-                        $counters['holidays_rest']++;
+                    if ($attendance && $attendance->incident_type !== IncidentType::DIA_FESTIVO) {
+                        // Evitar doble conteo si ya se marcó como tal
+                    } else if (!$attendance || $attendance->incident_type !== IncidentType::DIA_FESTIVO) {
+                         // Esta lógica ya está cubierta arriba pero reforzamos status
                     }
                 }
             }
@@ -349,39 +370,37 @@ class PayrollService
                 'is_absent' => $dayIsAbsent,
             ];
 
-            if ($dayPay > 0 || $attendance) {
+            if ($dayPay > 0 || $attendance || ($holiday && $dayCategory === 'holiday_rest')) {
                 $details['days'][] = [
                     'date' => $dateStr,
                     'amount' => $dayPay,
                     'concept' => $status . ($shiftsCount > 1 ? ' (Doble Turno)' : ''),
-                    'incident' => $attendance?->incident_type->label() ?? 'N/A',
+                    'incident' => $attendance?->incident_type->label() ?? ($holiday ? 'Día Festivo' : 'N/A'),
                     'category' => $dayCategory,
                     'shifts_count' => $shiftsCount,
                     'late_ignored' => $attendance?->late_ignored ?? false,
                     'is_late' => $attendance?->is_late ?? false,
-                    'extra_minutes' => $dayExtraMins // Info útil para debug
+                    'extra_minutes' => $dayExtraMins 
                 ];
             }
 
             $current->addDay();
         }
 
-        // 4. Calcular Bonos (Delegado al BonusService)
-        // Pasamos las estadísticas acumuladas y las diarias
+        // 4. Calcular Bonos
         $bonusResult = $this->bonusService->calculate($employee, $periodStats, $dailyStats);
 
         $totalPay += $bonusResult['total_amount'];
         $totalPay += $totalCommissions;
         $totalDaysWorked = $counters['days_worked'] + $counters['holidays_worked'];
 
-        // Fusionar los detalles de bonos en el array principal
         $details['bonuses'] = $bonusResult['details'];
 
         return [
             'employee' => $employee->only(['id', 'first_name', 'last_name', 'base_salary', 'user_id', 'profile_photo_url']),
             'total_pay' => round($totalPay, 2),
             'days_worked' => $totalDaysWorked,
-            'total_bonuses' => $bonusResult['total_amount'], // Total retornado por el servicio
+            'total_bonuses' => $bonusResult['total_amount'],
             'total_commissions' => round($totalCommissions, 2),
             'totals_breakdown' => $moneyBreakdown,
             'breakdown' => array_merge($details, $counters)

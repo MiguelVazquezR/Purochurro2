@@ -4,7 +4,9 @@ import { useForm, Link } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { useToast } from "primevue/usetoast";
 import axios from 'axios';
-import ProgressSpinner from 'primevue/progressspinner'; 
+import ProgressSpinner from 'primevue/progressspinner';
+import Dialog from 'primevue/dialog';
+import Timeline from 'primevue/timeline';
 
 // --- IMPORTAR DRIVER.JS PARA EL TOUR ---
 import { driver } from "driver.js";
@@ -13,7 +15,11 @@ import "driver.js/dist/driver.css";
 const props = defineProps({
     operation: Object,
     products: Array,
-    locations: Array
+    locations: Array,
+    kitchenTransfers: { // <-- NUEVA PROP
+        type: Array,
+        default: () => []
+    }
 });
 
 const toast = useToast();
@@ -25,6 +31,9 @@ const showPaymentModal = ref(false);
 const processingPayment = ref(false);
 const keypadInput = ref('0');
 const isEmployeeSale = ref(false);
+
+// --- ESTADO PARA HISTORIAL COCINA ---
+const showHistoryModal = ref(false);
 
 // --- ESTADO PARA CARRITO MÓVIL ---
 const showMobileCart = ref(false); // Controla la visibilidad del Drawer/Sidebar
@@ -126,12 +135,10 @@ const backspace = () => keypadInput.value = keypadInput.value.length > 1 ? keypa
 
 const changeAmount = computed(() => (parseFloat(keypadInput.value) || 0) - cartTotal.value);
 
-// [MODIFICADO] Ahora permite pagar siempre que haya items, sin importar el monto ingresado
 const canPay = computed(() => cart.value.length > 0);
 
 const openPayment = () => {
     if (!cart.value.length) return toast.add({ severity: 'warn', summary: 'Carrito vacío', life: 2000 });
-    // Si estamos en móvil, cerramos el drawer para mostrar el modal de pago limpio
     showMobileCart.value = false;
     keypadInput.value = '0';
     showPaymentModal.value = true;
@@ -146,16 +153,13 @@ const processSale = () => {
     
     paymentForm.items = cart.value.map(i => ({ product_id: i.product_id, quantity: i.quantity, price: i.price }));
     
-    // [MODIFICADO] Si el cajero deja en 0, asumimos pago exacto
     const inputVal = parseFloat(keypadInput.value) || 0;
     paymentForm.cash_received = inputVal === 0 ? cartTotal.value : inputVal;
     
     paymentForm.post(route('pos.store-sale'), {
         preserveScroll: true,
         onSuccess: () => {
-            // Si fue pago exacto (input 0), el cambio es 0
             const finalChange = inputVal === 0 ? 0 : changeAmount.value;
-            
             toast.add({ severity: 'success', summary: 'Venta exitosa', detail: `Cambio: ${formatCurrency(finalChange)}`, life: 5000 });
             showPaymentModal.value = false;
             clearCart();
@@ -222,15 +226,23 @@ const startTour = () => {
             { 
                 element: '#tour-transfers-btn', 
                 popover: { 
-                    title: '1. Traspasos de Cocina', 
-                    description: 'Importante: Si te quedas sin stock en el carrito, no podrás registrar más ventas de ese producto. Usa este botón para solicitar un traspaso de cocina y reabastecer tu caja.' 
+                    title: '1. Solicitar Traspasos', 
+                    description: 'Si te quedas sin stock, usa este botón para ir al módulo de traspasos y solicitar material.' 
+                } 
+            },
+            { 
+                // --- NUEVO PASO DEL TOUR ---
+                element: '#tour-kitchen-history', 
+                popover: { 
+                    title: '2. Historial de Cocina', 
+                    description: 'Aquí puedes verificar rápidamente si Cocina ya envió el material que solicitaste al Carrito 1. ¡Muy útil para no dar vueltas!' 
                 } 
             },
             { 
                 element: '#tour-employee-toggle', 
                 popover: { 
-                    title: '2. Precios de Empleado', 
-                    description: 'Cuando un colaborador quiera consumir, activa este interruptor. Los precios se ajustarán automáticamente y la venta quedará marcada para revisión administrativa.' 
+                    title: '3. Precios de Empleado', 
+                    description: 'Cuando un colaborador quiera consumir, activa este interruptor. Los precios se ajustarán automáticamente.' 
                 } 
             },
             { 
@@ -243,8 +255,8 @@ const startTour = () => {
             { 
                 element: '#tour-checkout-section', 
                 popover: { 
-                    title: '3. Cobrar y Finalizar', 
-                    description: 'Aquí verás el resumen de la orden. Al dar clic en "Cobrar", se abrirá la ventana para ingresar el efectivo. ¡Recuerda contar bien el cambio!' 
+                    title: '4. Cobrar y Finalizar', 
+                    description: 'Aquí verás el resumen de la orden. Al dar clic en "Cobrar", se abrirá la ventana para ingresar el efectivo.' 
                 } 
             }
         ],
@@ -321,9 +333,25 @@ onBeforeUnmount(() => {
 
                         <!-- Accesos Rápidos Inventario -->
                         <div class="flex gap-1 ml-2 border-l border-gray-200 pl-3">
-                            <Link id="tour-transfers-btn" :href="route('stock-transfers.index')" v-tooltip.bottom="'Traspasos'">
+                            <Link id="tour-transfers-btn" :href="route('stock-transfers.index')" v-tooltip.bottom="'Solicitar Traspasos'">
                                 <Button icon="pi pi-arrows-h" text rounded severity="help" class="!w-10 !h-10 hover:bg-indigo-50" />
                             </Link>
+                            
+                            <!-- NUEVO BOTÓN: Historial Cocina -->
+                            <Button 
+                                id="tour-kitchen-history"
+                                icon="pi pi-history" 
+                                text 
+                                rounded 
+                                severity="warn" 
+                                class="!w-10 !h-10 hover:bg-orange-50"
+                                v-tooltip.bottom="'Entradas desde Cocina'"
+                                @click="showHistoryModal = true"
+                            />
+                            <div v-if="kitchenTransfers.length > 0" class="absolute top-7 left-[14.8rem] flex size-2">
+                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
+                                <span class="relative inline-flex rounded-full size-2 bg-orange-500"></span>
+                            </div>
                         </div>
                     </div>
 
@@ -580,7 +608,7 @@ onBeforeUnmount(() => {
             </div>
         </Drawer>
 
-        <!-- MODAL COBRO (Mismo) -->
+        <!-- MODAL COBRO -->
         <Dialog v-model:visible="showPaymentModal" modal :style="{ width: '700px' }" class="!rounded-[2rem] overflow-hidden" :pt="{ header: { class: '!hidden' }, content: { class: '!p-0' } }">
             <div class="flex flex-col md:flex-row h-[500px] md:h-auto">
                 <!-- Columna Izquierda: Información de la Venta -->
@@ -645,6 +673,42 @@ onBeforeUnmount(() => {
                     </div>
                 </div>
             </div>
+        </Dialog>
+
+        <!-- === NUEVO MODAL: HISTORIAL DE TRASPASOS COCINA === -->
+        <Dialog v-model:visible="showHistoryModal" modal :style="{ width: '600px' }" class="!rounded-2xl" header="Envíos recientes de cocina">
+            <div class="py-2">
+                <div v-if="kitchenTransfers.length > 0">
+                    <Timeline :value="kitchenTransfers" class="w-full">
+                        <template #content="slotProps">
+                            <div class="flex flex-col mb-4 p-3 bg-gray-50 rounded-xl border border-gray-100">
+                                <div class="flex justify-between items-start">
+                                    <span class="font-bold text-gray-800 text-lg">{{ slotProps.item.product_name }}</span>
+                                    <span class="text-xs font-bold bg-orange-100 text-orange-700 px-2 py-1 rounded-md">{{ slotProps.item.time }}</span>
+                                </div>
+                                <div class="mt-2 flex items-center justify-between">
+                                    <span class="text-sm text-gray-500">Cantidad recibida:</span>
+                                    <span class="font-black text-xl text-indigo-600">+{{ slotProps.item.quantity }} u.</span>
+                                </div>
+                                <p v-if="slotProps.item.notes" class="text-xs text-gray-400 mt-2 italic">
+                                    "{{ slotProps.item.notes }}"
+                                </p>
+                            </div>
+                        </template>
+                        <template #opposite="slotProps">
+                            <span class="text-gray-400 text-xs hidden md:block">Cocina &rarr; Carrito</span>
+                        </template>
+                    </Timeline>
+                </div>
+                <div v-else class="flex flex-col items-center justify-center py-10 text-gray-400 gap-3">
+                    <i class="pi pi-inbox !text-5xl opacity-30"></i>
+                    <p class="font-medium">No hay traspasos registrados hoy.</p>
+                    <p class="text-xs">Los movimientos de "Cocina" a "Carrito" aparecerán aquí.</p>
+                </div>
+            </div>
+            <template #footer>
+                <Button label="Cerrar" icon="pi pi-check" @click="showHistoryModal = false" text severity="secondary" />
+            </template>
         </Dialog>
     </AppLayout>
 </template>
