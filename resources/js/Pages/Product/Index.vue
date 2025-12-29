@@ -20,7 +20,7 @@ const filters = ref({
 });
 
 const formatCurrency = (value) => {
-    if(value === undefined || value === null) return '$0.00';
+    if (value === undefined || value === null) return '$0.00';
     return new Intl.NumberFormat('es-MX', {
         style: 'currency',
         currency: 'MXN'
@@ -30,8 +30,8 @@ const formatCurrency = (value) => {
 // Helper modificado para obtener stock específico por ubicación
 const getLocationStock = (product, locationId) => {
     if (!product.track_inventory) return '∞';
-    return product.stocks && product.stocks[locationId] !== undefined 
-        ? product.stocks[locationId] 
+    return product.stocks && product.stocks[locationId] !== undefined
+        ? product.stocks[locationId]
         : 0;
 };
 
@@ -77,71 +77,47 @@ const deleteProduct = (product) => {
 <template>
     <AppLayout title="Productos">
         <div class="w-full flex flex-col gap-6">
-            
+
             <!-- Encabezado con Botones de Navegación -->
             <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 class="text-3xl font-bold tracking-tight text-surface-900">Productos</h1>
                     <p class="text-surface-500 text-sm mt-1">Gestiona tu catálogo, precios e inventario por almacén.</p>
                 </div>
-                
+
                 <div class="flex flex-wrap gap-3">
                     <Link :href="route('stock-transfers.index')">
-                        <Button 
-                            label="Traspasos" 
-                            icon="pi pi-arrows-h" 
-                            severity="help" 
-                            outlined
-                            class="!font-bold shadow-sm bg-white" 
-                            rounded 
-                        />
+                        <Button label="Traspasos" icon="pi pi-arrows-h" severity="help" outlined
+                            class="!font-bold shadow-sm bg-white" rounded />
                     </Link>
                     <Link :href="route('stock-adjustments.index')">
-                        <Button 
-                            label="Ajustes / Compras" 
-                            icon="pi pi-sliders-h" 
-                            severity="info" 
-                            outlined
-                            class="!font-bold shadow-sm bg-white" 
-                            rounded 
-                        />
+                        <Button label="Ajustes / Compras" icon="pi pi-sliders-h" severity="info" outlined
+                            class="!font-bold shadow-sm bg-white" rounded />
                     </Link>
 
                     <Link :href="route('products.create')">
-                        <Button 
-                            label="Nuevo Producto" 
-                            icon="pi pi-plus" 
-                            class="!bg-orange-600 !border-orange-600 hover:!bg-orange-700 font-semibold shadow-lg shadow-orange-200/50" 
-                            rounded 
-                        />
+                        <Button label="Nuevo Producto" icon="pi pi-plus"
+                            class="!bg-orange-600 !border-orange-600 hover:!bg-orange-700 font-semibold shadow-lg shadow-orange-200/50"
+                            rounded />
                     </Link>
                 </div>
             </div>
 
             <!-- Tabla Glassmorphism -->
-            <div class="bg-white/80 backdrop-blur-xl border border-surface-200 rounded-3xl shadow-xl overflow-hidden p-1">
-                
-                <DataTable 
-                    ref="dt"
-                    :value="products" 
-                    v-model:filters="filters"
-                    dataKey="id" 
-                    :paginator="true" 
-                    :rows="10"
-                    :rowsPerPageOptions="[10, 20, 50]"
+            <div
+                class="bg-white/80 backdrop-blur-xl border border-surface-200 rounded-3xl shadow-xl overflow-hidden p-1">
+
+                <DataTable ref="dt" :value="products" v-model:filters="filters" dataKey="id" :paginator="true"
+                    :rows="10" :rowsPerPageOptions="[10, 20, 50]"
                     paginatorTemplate="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink CurrentPageReport RowsPerPageDropdown"
                     currentPageReportTemplate="Mostrando {first} a {last} de {totalRecords} productos"
-                    :globalFilterFields="['name', 'barcode']"
-                    selectionMode="single"
-                    @row-click="onRowClick"
-                    class="p-datatable-sm"
-                    :pt="{
+                    :globalFilterFields="['name', 'barcode']" selectionMode="single" @row-click="onRowClick"
+                    class="p-datatable-sm" :pt="{
                         root: { class: 'rounded-2xl overflow-hidden' },
                         header: { class: '!bg-transparent !border-0 !p-4' },
                         thead: { class: '!bg-surface-50' },
                         bodyRow: { class: 'hover:!bg-orange-50/50 transition-colors duration-200 cursor-pointer' }
-                    }"
-                >
+                    }">
                     <template #header>
                         <div class="flex flex-col sm:flex-row justify-between items-center gap-4">
                             <span class="text-lg font-semibold text-surface-700 pl-2 hidden sm:block">Catálogo</span>
@@ -149,11 +125,8 @@ const deleteProduct = (product) => {
                                 <InputIcon>
                                     <i class="pi pi-search text-surface-400" />
                                 </InputIcon>
-                                <InputText 
-                                    v-model="filters['global'].value" 
-                                    placeholder="Buscar producto..." 
-                                    class="!rounded-full !bg-surface-50 !border-surface-200 focus:!ring-orange-200 w-full sm:w-80" 
-                                />
+                                <InputText v-model="filters['global'].value" placeholder="Buscar producto..."
+                                    class="!rounded-full !bg-surface-50 !border-surface-200 focus:!ring-orange-200 w-full sm:w-80" />
                             </IconField>
                         </div>
                     </template>
@@ -168,14 +141,13 @@ const deleteProduct = (product) => {
                     <!-- Imagen -->
                     <Column header="Imagen" class="w-[80px] md:w-[100px]">
                         <template #body="slotProps">
-                            <div class="relative w-12 h-12 rounded-xl overflow-hidden shadow-sm border border-surface-100 bg-white group">
-                                <img 
-                                    v-if="slotProps.data.image_url" 
-                                    :src="slotProps.data.image_url" 
-                                    :alt="slotProps.data.name" 
-                                    class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" 
-                                />
-                                <div v-else class="w-full h-full flex items-center justify-center bg-surface-50 text-surface-300">
+                            <div
+                                class="relative w-12 h-12 rounded-xl overflow-hidden shadow-sm border border-surface-100 bg-white group">
+                                <img v-if="slotProps.data.image_url" :src="slotProps.data.image_url"
+                                    :alt="slotProps.data.name"
+                                    class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                                <div v-else
+                                    class="w-full h-full flex items-center justify-center bg-surface-50 text-surface-300">
                                     <i class="pi pi-image text-xl"></i>
                                 </div>
                             </div>
@@ -186,19 +158,24 @@ const deleteProduct = (product) => {
                     <Column field="name" header="Producto" sortable class="min-w-[180px]">
                         <template #body="slotProps">
                             <div class="flex flex-col">
-                                <span class="font-bold text-surface-800 text-base truncate max-w-[200px] md:max-w-xs">{{ slotProps.data.name }}</span>
+                                <span class="font-bold text-surface-800 text-base truncate max-w-[200px] md:max-w-xs">{{
+                                    slotProps.data.name }}</span>
                                 <div class="flex items-center gap-2 mt-1">
-                                    <span v-if="slotProps.data.barcode" class="text-xs bg-surface-100 text-surface-500 px-2 py-0.5 rounded-md border border-surface-200 font-mono">
+                                    <span v-if="slotProps.data.barcode"
+                                        class="text-xs bg-surface-100 text-surface-500 px-2 py-0.5 rounded-md border border-surface-200 font-mono">
                                         {{ slotProps.data.barcode }}
                                     </span>
-                                    <span v-if="!slotProps.data.is_active" class="text-xs text-red-500 font-medium bg-red-50 px-2 py-0.5 rounded-full">
+                                    <span v-if="!slotProps.data.is_active"
+                                        class="text-xs text-red-500 font-medium bg-red-50 px-2 py-0.5 rounded-full">
                                         Inactivo
                                     </span>
                                 </div>
 
                                 <!-- Vista Móvil: Desglose de Stock -->
-                                <div v-if="slotProps.data.track_inventory" class="md:hidden mt-2 grid grid-cols-2 gap-x-2 gap-y-1 bg-surface-50 p-2 rounded-lg border border-surface-100">
-                                    <div v-for="loc in locations" :key="loc.id" class="flex justify-between items-center text-xs">
+                                <div v-if="slotProps.data.track_inventory"
+                                    class="md:hidden mt-2 grid grid-cols-2 gap-x-2 gap-y-1 bg-surface-50 p-2 rounded-lg border border-surface-100">
+                                    <div v-for="loc in locations" :key="loc.id"
+                                        class="flex justify-between items-center text-xs">
                                         <span class="text-surface-500 truncate mr-1 max-w-[80px]">{{ loc.name }}:</span>
                                         <span :class="{
                                             'font-bold': true,
@@ -223,20 +200,12 @@ const deleteProduct = (product) => {
                     </Column>
 
                     <!-- Columnas Dinámicas por Ubicación (Solo Desktop) -->
-                    <Column 
-                        v-for="loc in locations" 
-                        :key="loc.id" 
-                        :header="loc.name" 
-                        class="hidden md:table-cell min-w-[100px]"
-                    >
+                    <Column v-for="loc in locations" :key="loc.id" :header="loc.name"
+                        class="hidden md:table-cell min-w-[100px]">
                         <template #body="slotProps">
-                            <Tag 
-                                v-if="slotProps.data.track_inventory"
-                                :value="getLocationStock(slotProps.data, loc.id)" 
-                                :severity="getStockSeverity(getLocationStock(slotProps.data, loc.id), true)" 
-                                rounded
-                                class="!px-2 !py-0.5 !text-xs !font-medium"
-                            />
+                            <Tag v-if="slotProps.data.track_inventory" :value="getLocationStock(slotProps.data, loc.id)"
+                                :severity="getStockSeverity(getLocationStock(slotProps.data, loc.id), true)" rounded
+                                class="!px-2 !py-0.5 !text-xs !font-medium" />
                             <span v-else class="text-surface-400 text-xs">-</span>
                         </template>
                     </Column>
@@ -249,7 +218,9 @@ const deleteProduct = (product) => {
                                     {{ formatCurrency(slotProps.data.price) }}
                                 </span>
                                 <!-- Precio Empleado -->
-                                <div v-if="slotProps.data.employee_price > 0" class="flex items-center gap-1 text-[10px] font-medium text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100" title="Precio Empleado">
+                                <div v-if="slotProps.data.employee_price > 0"
+                                    class="flex items-center gap-1 text-[10px] font-medium text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100"
+                                    title="Precio Empleado">
                                     <i class="pi pi-id-card text-[9px]"></i>
                                     <span>{{ formatCurrency(slotProps.data.employee_price) }}</span>
                                 </div>
@@ -258,27 +229,16 @@ const deleteProduct = (product) => {
                     </Column>
 
                     <!-- Acciones -->
-                    <Column header="" class="w-[80px] text-right">
+                    <Column v-if="$page.props.auth.user.id == 1" header="" class="w-[80px] text-right">
                         <template #body="slotProps">
                             <div class="flex justify-end gap-1 action-btn">
-                                <Button 
-                                    icon="pi pi-pencil" 
-                                    text 
-                                    rounded 
-                                    severity="secondary" 
+                                <Button icon="pi pi-pencil" text rounded severity="secondary"
                                     class="!w-8 !h-8 !text-surface-400 hover:!text-orange-600 hover:!bg-orange-50"
                                     v-tooltip.top="'Editar'"
-                                    @click="router.get(route('products.edit', slotProps.data.id))"
-                                />
-                                <Button 
-                                    icon="pi pi-trash" 
-                                    text 
-                                    rounded 
-                                    severity="danger" 
+                                    @click="router.get(route('products.edit', slotProps.data.id))" />
+                                <Button icon="pi pi-trash" text rounded severity="danger"
                                     class="!w-8 !h-8 !text-surface-400 hover:!text-red-600 hover:!bg-red-50"
-                                    v-tooltip.top="'Eliminar'"
-                                    @click="deleteProduct(slotProps.data)"
-                                />
+                                    v-tooltip.top="'Eliminar'" @click="deleteProduct(slotProps.data)" />
                             </div>
                         </template>
                     </Column>

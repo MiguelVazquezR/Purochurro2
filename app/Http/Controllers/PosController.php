@@ -28,8 +28,32 @@ class PosController extends Controller
             return Inertia::render('Pos/OpenDay');
         }
 
+        // --- NUEVO: Obtener historial de traspasos de Cocina -> Carrito 1 del día ---
+        $kitchenTransfers = StockMovement::with('product')
+            ->where('type', StockMovementType::TRANSFER) // Filtramos solo traspasos
+            ->whereHas('fromLocation', function($q) {
+                $q->where('slug', 'cocina'); // Origen: Cocina
+            })
+            ->whereHas('toLocation', function($q) {
+                $q->where('slug', 'carrito-1'); // Destino: Carrito 1 (Punto de Venta)
+            })
+            ->whereDate('created_at', now()) // Solo de hoy
+            ->latest() // Los más recientes primero
+            ->get()
+            ->map(function ($move) {
+                return [
+                    'id' => $move->id,
+                    'product_name' => $move->product->name,
+                    'quantity' => $move->quantity,
+                    'time' => $move->created_at->format('H:i'), // Hora formato 24h
+                    'notes' => $move->notes,
+                ];
+            });
+        // --------------------------------------------------------------------------
+
         return Inertia::render('Pos/Terminal', [
             'operation' => $todayOperation,
+            'kitchenTransfers' => $kitchenTransfers, // <-- Pasamos los datos a la vista
             // 1. Ordenamos por nombre alfabéticamente
             'products' => Product::where('is_active', true)
                 ->where('is_sellable', true)
