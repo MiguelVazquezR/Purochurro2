@@ -679,18 +679,21 @@ onBeforeUnmount(() => {
         <Dialog v-model:visible="showHistoryModal" modal :style="{ width: '600px' }" class="!rounded-2xl" header="Envíos recientes de cocina">
             <div class="py-2">
                 <div v-if="kitchenTransfers.length > 0">
-                    <Timeline :value="kitchenTransfers" class="w-full">
+                    <Timeline :value="kitchenTransfers" class="w-full !-ml-16">
                         <template #content="slotProps">
                             <div class="flex flex-col mb-4 p-3 bg-gray-50 rounded-xl border border-gray-100">
                                 <div class="flex justify-between items-start">
-                                    <span class="font-bold text-gray-800 text-lg">{{ slotProps.item.product_name }}</span>
-                                    <span class="text-xs font-bold bg-orange-100 text-orange-700 px-2 py-1 rounded-md">{{ slotProps.item.time }}</span>
+                                    <span class="font-bold text-gray-800 text-base">{{ slotProps.item.product_name }}</span>
+                                    <span class="text-[11px] font-bold bg-orange-100 text-orange-700 px-2 py-1 rounded-md">
+                                        <i class="pi pi-clock !text-[11px] mr-px"></i>
+                                        {{ slotProps.item.time }}
+                                    </span>
                                 </div>
-                                <div class="mt-2 flex items-center justify-between">
+                                <div class="mt-1 flex items-center justify-between">
                                     <span class="text-sm text-gray-500">Cantidad recibida:</span>
-                                    <span class="font-black text-xl text-indigo-600">+{{ slotProps.item.quantity }} u.</span>
+                                    <span class="font-black text-lg text-indigo-600">+{{ slotProps.item.quantity }}</span>
                                 </div>
-                                <p v-if="slotProps.item.notes" class="text-xs text-gray-400 mt-2 italic">
+                                <p v-if="slotProps.item.notes" class="text-xs text-gray-400 mt-1 italic">
                                     "{{ slotProps.item.notes }}"
                                 </p>
                             </div>
