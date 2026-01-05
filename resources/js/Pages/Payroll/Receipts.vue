@@ -84,17 +84,11 @@ const getReceiptData = (dataItem) => {
     // 2. Festivos (Desglose Laborado vs No Laborado)
     const holidaysRestCount = breakdown.holidays_rest || 0;
     const holidaysWorkedCount = breakdown.holidays_worked || 0;
-    const totalHolidayMoney = moneyBreakdown.salary_holidays || 0;
-
-    // A. Festivo No Laborado (Descanso pagado): Generalmente es sueldo base x 1
-    const holidaysRestAmount = holidaysRestCount * baseSalary;
-
-    // B. Festivo Laborado: Es el remanente del dinero total de festivos
-    let holidaysWorkedAmount = 0;
-    if (holidaysWorkedCount > 0) {
-        holidaysWorkedAmount = totalHolidayMoney - holidaysRestAmount;
-        if (holidaysWorkedAmount < 0) holidaysWorkedAmount = 0; 
-    }
+    
+    // --- CORRECCIÓN CLAVE: Usar valores directos del backend ---
+    // Ya no recalculamos (count * baseSalary) aquí, porque el backend puede haber decidido pagar 0.
+    const holidaysRestAmount = moneyBreakdown.salary_holidays_rest || 0;
+    const holidaysWorkedAmount = moneyBreakdown.salary_holidays_worked || 0;
 
     const holidaysRest = {
         count: holidaysRestCount,
@@ -243,7 +237,8 @@ const print = () => window.print();
                                     </tr>
                                     
                                     <!-- Festivos NO Laborados (Descanso Pagado) -->
-                                    <tr v-if="receipt.concepts.holidays_rest.count > 0">
+                                    <!-- CORRECCIÓN: Ocultar si el monto es 0, aunque haya conteo estadístico -->
+                                    <tr v-if="receipt.concepts.holidays_rest.amount > 0">
                                         <td class="py-0.5 px-1 text-gray-800">Festivos (Descanso)</td>
                                         <td class="py-0.5 px-1 text-center text-gray-500">{{ receipt.concepts.holidays_rest.count }}</td>
                                         <td class="py-0.5 px-1 text-right font-mono font-medium text-gray-900">{{ formatCurrency(receipt.concepts.holidays_rest.amount) }}</td>

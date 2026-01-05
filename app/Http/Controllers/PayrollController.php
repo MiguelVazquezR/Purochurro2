@@ -23,7 +23,6 @@ class PayrollController extends Controller
         $currentStart = Carbon::now()->startOfWeek(Carbon::SUNDAY)->format('Y-m-d');
         $weekStarts = collect([$currentStart]);
 
-        // CORRECCIÓN: Normalizar fechas de recibos a string Y-m-d para evitar duplicados en el unique()
         $receiptStarts = PayrollReceipt::select('start_date')
             ->distinct()
             ->pluck('start_date')
@@ -31,7 +30,6 @@ class PayrollController extends Controller
             
         $weekStarts = $weekStarts->merge($receiptStarts);
 
-        // CORRECCIÓN: Normalizar fechas de asistencias
         $attendanceDates = Attendance::select('date')->distinct()->get()
             ->map(fn($a) => Carbon::parse($a->date)->startOfWeek(Carbon::SUNDAY)->format('Y-m-d'));
             
@@ -112,7 +110,6 @@ class PayrollController extends Controller
                 $dateStr = $period->format('Y-m-d');
                 $monthDay = $period->format('m-d');
 
-                // Obtener colección para sumar comisiones si hay doble turno
                 $attendances = Attendance::where('employee_id', $employee->id)
                     ->where('date', $dateStr)
                     ->get();
@@ -128,8 +125,12 @@ class PayrollController extends Controller
                 $incident = $attendance ? $attendance->incident_type : null;
                 $holiday = $holidaysLookup->get($monthDay);
 
+                // --- ACTUALIZADO: Mostrar nombre del Festivo aunque no se pague ---
                 if (!$attendance) {
-                    if ($schedule && $schedule->shift_id) {
+                    if ($holiday) {
+                        $incidentLabel = $holiday->name; // Ej: "Año Nuevo"
+                        $incident = IncidentType::DIA_FESTIVO->value;
+                    } elseif ($schedule && $schedule->shift_id) {
                         $incidentLabel = 'Falta / Pendiente';
                     } else {
                         $incidentLabel = 'Descanso';
@@ -142,7 +143,7 @@ class PayrollController extends Controller
                     'date' => $dateStr,
                     'day_name' => $period->locale('es')->dayName,
                     'attendance_id' => $attendance?->id,
-                    'incident_type' => $incident?->value,
+                    'incident_type' => $incident, // Ajustado para tomar valor correcto
                     'incident_label' => $incidentLabel,
                     'check_in' => $attendance?->check_in ? Carbon::parse($attendance->check_in)->format('H:i') : null,
                     'check_out' => $attendance?->check_out ? Carbon::parse($attendance->check_out)->format('H:i') : null,
@@ -243,7 +244,10 @@ class PayrollController extends Controller
             if ($attendance) {
                 $incidentLabel = $attendance->incident_type->label();
             } else {
-                if ($schedule && $schedule->shift_id) {
+                // --- ACTUALIZADO: Mostrar nombre del Festivo ---
+                if ($holiday) {
+                    $incidentLabel = $holiday->name; 
+                } elseif ($schedule && $schedule->shift_id) {
                     $incidentLabel = Carbon::parse($dateStr)->isFuture() ? 'Programado' : 'Falta / Pendiente';
                 } else {
                     $incidentLabel = 'Descanso';
@@ -253,7 +257,7 @@ class PayrollController extends Controller
             $days[] = [
                 'date' => $dateStr,
                 'day_name' => $period->locale('es')->dayName,
-                'incident_type' => $attendance?->incident_type?->value,
+                'incident_type' => $attendance?->incident_type?->value ?? ($holiday ? IncidentType::DIA_FESTIVO->value : null),
                 'incident_label' => $incidentLabel,
                 'check_in' => $attendance?->check_in ? Carbon::parse($attendance->check_in)->format('H:i') : null,
                 'check_out' => $attendance?->check_out ? Carbon::parse($attendance->check_out)->format('H:i') : null,
@@ -298,12 +302,7 @@ class PayrollController extends Controller
 
         foreach ($employees as $employee) {
             $calculation = $payrollService->calculate($employee, $start, $end);
-
-            // --- CORRECCIÓN: Usar el desglose real calculado por el servicio ---
-            // El servicio ya calcula (ventas/3300)*10 por día, respetando las decenas cerradas.
             $calculation['commissions_detail'] = $calculation['breakdown']['commissions'] ?? [];
-            // -------------------------------------------------------------------
-
             $receiptsData[] = $calculation;
         }
 
@@ -324,7 +323,7 @@ class PayrollController extends Controller
             'check_out' => 'nullable|date_format:H:i',
             'late_ignored' => 'boolean',
             'admin_notes' => 'nullable|string',
-            'commission_amount' => 'nullable|numeric|min:0' // <-- NUEVO: Validación comisión
+            'commission_amount' => 'nullable|numeric|min:0' 
         ]);
 
         DB::beginTransaction();
@@ -366,7 +365,7 @@ class PayrollController extends Controller
             $attendance->is_late = $isLate;
             $attendance->late_ignored = $validated['late_ignored'] ?? false;
             $attendance->admin_notes = $validated['admin_notes'] ?? null;
-            $attendance->commission_amount = $validated['commission_amount'] ?? 0; // <-- NUEVO: Guardar comisión
+            $attendance->commission_amount = $validated['commission_amount'] ?? 0;
 
             $attendance->save();
 
@@ -404,7 +403,6 @@ class PayrollController extends Controller
 
         $attendance = Attendance::findOrFail($id);
 
-        // Opcional: Si es vacaciones, regresar saldo
         if ($attendance->incident_type === IncidentType::VACACIONES) {
             $employee = Employee::find($attendance->employee_id);
             $dateStr = Carbon::parse($attendance->date)->format('d/m/Y');
@@ -471,12 +469,14 @@ class PayrollController extends Controller
 
         $employees = Employee::with(['recurringBonuses'])->where('is_active', true)->get();
         $payrollService = new PayrollService();
-        $weeklyVacationAccrual = 6 / 52;
+        
+        // ELIMINADO: Lógica de devengo de vacaciones ($weeklyVacationAccrual)
+        // Ahora se maneja mediante el comando 'vacation:accrue-weekly'
 
         DB::beginTransaction();
         try {
             $receiptsCount = 0;
-            $totalPayrollAmount = 0; // --- ACUMULADOR DE TOTAL PAGADO ---
+            $totalPayrollAmount = 0; 
 
             foreach ($employees as $employee) {
                 $calc = $payrollService->calculate($employee, $start, $end);
@@ -484,8 +484,6 @@ class PayrollController extends Controller
                 $finalBreakdownData = $calc['breakdown'];
                 $finalBreakdownData['totals_breakdown'] = $calc['totals_breakdown'];
                 $finalBreakdownData['commissions_total'] = $calc['total_commissions'];
-
-                // CORRECCIÓN: Guardar el detalle de comisiones ORIGINAL del servicio
                 $finalBreakdownData['commissions_detail'] = $calc['breakdown']['commissions'] ?? [];
 
                 PayrollReceipt::create([
@@ -500,14 +498,8 @@ class PayrollController extends Controller
                     'paid_at' => $request->mark_as_paid ? now() : null,
                 ]);
 
-                $employee->adjustVacationBalance(
-                    $weeklyVacationAccrual,
-                    'accrual',
-                    "Acumulación semanal (Cierre Nómina)",
-                    auth()->id()
-                );
+                // ELIMINADO: adjustVacationBalance para acumulación semanal
 
-                // --- Sumar al total general ---
                 $totalPayrollAmount += $calc['total_pay'];
                 $receiptsCount++;
             }
@@ -518,14 +510,13 @@ class PayrollController extends Controller
                 $attendance->clearMediaCollection('check_out_photo');
             }
 
-            // --- NUEVO: REGISTRAR GASTO AUTOMÁTICO ---
             if ($request->mark_as_paid && $totalPayrollAmount > 0) {
                 Expense::create([
                     'concept' => 'Nómina Semanal ' . $start->format('d/m') . ' - ' . $end->format('d/m/Y'),
                     'amount' => $totalPayrollAmount,
-                    'date' => now(), // Fecha de hoy (día del cierre)
+                    'date' => now(), 
                     'notes' => "Cierre de nómina. {$receiptsCount} recibos generados.",
-                    'user_id' => auth()->id(), // El admin que cierra la nómina
+                    'user_id' => auth()->id(), 
                 ]);
             }
 

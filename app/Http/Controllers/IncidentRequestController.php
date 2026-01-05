@@ -24,9 +24,24 @@ class IncidentRequestController extends Controller
         $employeeProfile = Employee::where('user_id', $user->id)->first();
 
         $query = IncidentRequest::with('employee');
+        $employeeStats = null;
 
         if ($employeeProfile) {
             $query->where('employee_id', $employeeProfile->id);
+
+            // --- CÁLCULO DE META ANUAL PARA VALIDACIÓN FRONTEND ---
+            // Contamos los días laborales en su horario base
+            $schedule = $employeeProfile->default_schedule_template;
+            $entitledDays = 0;
+            if (is_array($schedule)) {
+                $entitledDays = count(array_filter($schedule, fn($val) => !is_null($val)));
+            }
+
+            $employeeStats = [
+                'balance' => $employeeProfile->vacation_balance,
+                'entitled_days' => $entitledDays
+            ];
+
         } else {
             $query->orderByRaw("CASE WHEN status = 'pending' THEN 1 ELSE 2 END");
         }
@@ -35,6 +50,7 @@ class IncidentRequestController extends Controller
             'requests' => $query->latest()->paginate(10),
             'canApprove' => is_null($employeeProfile),
             'incidentTypes' => array_column(IncidentType::cases(), 'value'),
+            'employeeStats' => $employeeStats, // Enviamos datos para validar en vista
         ]);
     }
 
@@ -51,6 +67,23 @@ class IncidentRequestController extends Controller
             'end_date' => 'required|date|after_or_equal:start_date',
             'employee_reason' => 'required|string|max:500',
         ]);
+
+        // --- VALIDACIÓN DE NEGOCIO: REQUISITO DE VACACIONES ---
+        if ($validated['incident_type'] === IncidentType::VACACIONES->value) {
+            // 1. Calcular meta anual
+            $schedule = $employee->default_schedule_template;
+            $entitledDays = 0;
+            if (is_array($schedule)) {
+                $entitledDays = count(array_filter($schedule, fn($val) => !is_null($val)));
+            }
+
+            // 2. Verificar si tiene acumulado el total anual
+            if ($employee->vacation_balance < $entitledDays) {
+                return back()->withErrors([
+                    'incident_type' => "No cumples con el requisito. Necesitas tener acumulados tus {$entitledDays} días anuales completos para solicitar vacaciones. (Saldo actual: {$employee->vacation_balance})"
+                ]);
+            }
+        }
 
         IncidentRequest::create([
             'employee_id' => $employee->id,
@@ -80,7 +113,6 @@ class IncidentRequestController extends Controller
 
         DB::beginTransaction();
         try {
-            // CORRECCIÓN: Usamos '?? null' para evitar error si no se envía admin_response
             $incidentRequest->update([
                 'status' => $validated['status'],
                 'admin_response' => $validated['admin_response'] ?? null, 
@@ -130,7 +162,6 @@ class IncidentRequestController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
-            // Esto es útil para debug: si falla, verás el error en la sesión
             return back()->with('error', 'Error al procesar: ' . $e->getMessage());
         }
     }

@@ -2,11 +2,17 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\StockMovementType;
 use App\Models\Attendance;
 use App\Models\DailyOperation;
+use App\Models\Expense;
+use App\Models\Inventory;
+use App\Models\Location;
 use App\Models\Product;
+use App\Models\StockMovement;
 use App\Models\WorkSchedule;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 
 class SaleController extends Controller
@@ -50,33 +56,30 @@ class SaleController extends Controller
 
                 $staffList = $attendances->map(function ($attendance) use ($schedules) {
                     $emp = $attendance->employee;
-                    // Validación de seguridad por si employee o user son null
                     if (!$emp) return null; 
                     
-                    // Intentamos buscar su horario programado para dar contexto visual
                     $schedule = $schedules->get($emp->id);
                     
                     return [
                         'id' => $emp->id,
                         'name' => $emp->full_name,
-                        // Generamos iniciales de forma segura
                         'initials' => substr($emp->first_name ?? 'X', 0, 1) . substr($emp->last_name ?? 'X', 0, 1),
-                        'photo' => $emp->profile_photo_url ?? null, // URL de Jetstream/Laravel
+                        'photo' => $emp->profile_photo_url ?? null,
                         'shift_color' => $schedule && $schedule->shift ? $schedule->shift->color : '#9ca3af',
                         'shift_name' => $schedule && $schedule->shift ? $schedule->shift->name : 'Asistencia registrada'
                     ];
-                })->filter(); // Eliminamos nulos
+                })->filter();
 
                 return [
                     'id' => $day->id,
                     'date' => $day->date,
                     'is_closed' => $day->is_closed,
-                    'staff_list' => $staffList->take(4)->values(), // Re-indexamos array y limitamos a 4 para vista previa
+                    'staff_list' => $staffList->take(4)->values(),
                     'staff_count' => $staffList->count(),
                     'total_public' => $totalPublic,
                     'total_employee' => $totalEmployee,
                     'grand_total' => $grandTotal,
-                    'cash_end' => $day->cash_end, // <-- AGREGADO: Monto real del corte
+                    'cash_end' => $day->cash_end,
                 ];
             });
 
@@ -122,12 +125,10 @@ class SaleController extends Controller
 
         $totalSales = $dailyOperation->sales()->sum('total');
         
-        // Cálculo de comisiones (Refactorizado para seguridad si producto 1 no existe)
         $refProduct = Product::find(1);
         $commissionBase = 0;
         
         if ($refProduct && $refProduct->price > 0) {
-            // Fórmula: (Total / (PrecioRef * 10)) / 10 -> Redondeo a decenas
             $commissionBase = floor(($totalSales / ($refProduct->price * 10)) / 10) * 10;
         }
 
@@ -150,48 +151,132 @@ class SaleController extends Controller
             'notes' => 'nullable|string'
         ]);
 
-        $totalSales = $dailyOperation->sales()->sum('total');
-        
-        // 1. Cálculo de Comisión
-        $refProduct = Product::find(1);
-        $commissionBase = 0;
-        if ($refProduct && $refProduct->price > 0) {
-            $commissionBase = floor(($totalSales / ($refProduct->price * 10)) / 10) * 10;
+        DB::beginTransaction();
+        try {
+            $totalSales = $dailyOperation->sales()->sum('total');
+            
+            // 1. Cálculo de Comisión
+            $refProduct = Product::find(1);
+            $commissionBase = 0;
+            if ($refProduct && $refProduct->price > 0) {
+                $commissionBase = floor(($totalSales / ($refProduct->price * 10)) / 10) * 10;
+            }
+
+            // 2. Guardar Comisión en Asistencias del Día
+            $affectedAttendances = Attendance::whereDate('date', $dailyOperation->date)
+                ->update(['commission_amount' => $commissionBase]);
+
+            // 3. Preparar notas de cierre
+            $cashStart = floatval($dailyOperation->cash_start);
+            $cashEndReal = floatval($validated['cash_end']);
+            $expectedCash = $cashStart + $totalSales;
+            $difference = $cashEndReal - $expectedCash;
+
+            $finalNote = $validated['notes'] ? trim($validated['notes']) . "\n" : "";
+            $finalNote .= "\n--- RESUMEN DE CORTE ---";
+            $finalNote .= "\nFondo inicial:   $" . number_format($cashStart, 2);
+            $finalNote .= "\nVentas totales:  $" . number_format($totalSales, 2);
+            $finalNote .= "\n-------------------------";
+            $finalNote .= "\nTotal esperado:  $" . number_format($expectedCash, 2);
+            $finalNote .= "\nEfectivo real:   $" . number_format($cashEndReal, 2);
+
+            $diffSymbol = $difference > 0 ? "+" : "";
+            $diffLabel = $difference == 0 ? "(Cuadrado)" : ($difference > 0 ? "(Sobrante)" : "(Faltante)");
+
+            $finalNote .= "\nDiferencia:      " . $diffSymbol . "$" . number_format($difference, 2) . " " . $diffLabel;
+            $finalNote .= "\n\n--- COMISIÓN ---";
+            $finalNote .= "\nPago por turno:  $" . number_format($commissionBase, 2);
+            $finalNote .= "\nAsignada a:      " . $affectedAttendances . " empleados.";
+
+            // =========================================================================
+            // NUEVO 4: Pago Automático de Renta (Día 4 del mes)
+            // =========================================================================
+            if ($dailyOperation->date->day === 4) {
+                // Verificar si ya se cobró hoy para evitar duplicados en caso de re-cierre (opcional)
+                $rentExists = Expense::whereDate('date', $dailyOperation->date)
+                    ->where('concept', 'Pago de Renta (Automático)')
+                    ->exists();
+
+                if (!$rentExists) {
+                    Expense::create([
+                        'concept' => 'Pago de Renta (Automático)',
+                        'amount' => 52000,
+                        'date' => $dailyOperation->date,
+                        'notes' => 'Generado automáticamente al cierre de caja.',
+                        'user_id' => auth()->id(),
+                    ]);
+
+                    $finalNote .= "\n\n--- GASTO AUTOMÁTICO ---";
+                    $finalNote .= "\nSe registró el pago de Renta por $52,000.00";
+                }
+            }
+
+            // =========================================================================
+            // NUEVO 5: Traspaso de productos sobrantes (Carrito 1 -> Cocina)
+            // =========================================================================
+            $productsToReturn = [1, 2, 4, 5, 14, 15];
+            $sourceSlug = 'carrito-1';
+            $destSlug = 'cocina';
+
+            $sourceLoc = Location::where('slug', $sourceSlug)->first();
+            $destLoc = Location::where('slug', $destSlug)->first();
+
+            if ($sourceLoc && $destLoc) {
+                $transferredCount = 0;
+                
+                foreach ($productsToReturn as $productId) {
+                    $sourceInv = Inventory::where('location_id', $sourceLoc->id)
+                        ->where('product_id', $productId)
+                        ->first();
+
+                    // Si hay existencias en el carrito, las movemos todas
+                    if ($sourceInv && $sourceInv->quantity > 0) {
+                        $qtyToMove = $sourceInv->quantity;
+
+                        // Destino (Cocina)
+                        $destInv = Inventory::firstOrCreate(
+                            ['location_id' => $destLoc->id, 'product_id' => $productId],
+                            ['quantity' => 0]
+                        );
+
+                        // Movimiento
+                        $sourceInv->decrement('quantity', $qtyToMove);
+                        $destInv->increment('quantity', $qtyToMove);
+
+                        // Registro Kardex
+                        StockMovement::create([
+                            'product_id' => $productId,
+                            'from_location_id' => $sourceLoc->id,
+                            'to_location_id' => $destLoc->id,
+                            'quantity' => $qtyToMove,
+                            'type' => StockMovementType::TRANSFER,
+                            'user_id' => auth()->id(),
+                            'notes' => 'Retorno automático al cierre de caja (Sobrante)'
+                        ]);
+                        
+                        $transferredCount++;
+                    }
+                }
+                
+                if ($transferredCount > 0) {
+                    $finalNote .= "\n\n--- INVENTARIO ---";
+                    $finalNote .= "\nSe retornaron productos sobrantes del Carrito a Cocina.";
+                }
+            }
+
+            // 6. Actualizar operación final
+            $dailyOperation->update([
+                'cash_end' => $validated['cash_end'],
+                'is_closed' => true,
+                'notes' => trim($finalNote)
+            ]);
+
+            DB::commit();
+            return redirect()->back()->with('success', "Corte realizado. Comisión de $$commissionBase guardada.");
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return redirect()->back()->with('error', 'Error al cerrar caja: ' . $e->getMessage());
         }
-
-        // 2. Guardar Comisión en Asistencias del Día
-        // Buscamos todas las asistencias registradas para la fecha de la operación
-        $affectedAttendances = Attendance::whereDate('date', $dailyOperation->date)
-            ->update(['commission_amount' => $commissionBase]);
-
-        // 3. Lógica de Cierre de Caja
-        $cashStart = floatval($dailyOperation->cash_start);
-        $cashEndReal = floatval($validated['cash_end']);
-        $expectedCash = $cashStart + $totalSales;
-        $difference = $cashEndReal - $expectedCash;
-
-        $finalNote = $validated['notes'] ? trim($validated['notes']) . "\n" : "";
-        $finalNote .= "\n--- RESUMEN DE CORTE ---";
-        $finalNote .= "\nFondo inicial:   $" . number_format($cashStart, 2);
-        $finalNote .= "\nVentas totales:  $" . number_format($totalSales, 2);
-        $finalNote .= "\n-------------------------";
-        $finalNote .= "\nTotal esperado:  $" . number_format($expectedCash, 2);
-        $finalNote .= "\nEfectivo real:   $" . number_format($cashEndReal, 2);
-
-        $diffSymbol = $difference > 0 ? "+" : "";
-        $diffLabel = $difference == 0 ? "(Cuadrado)" : ($difference > 0 ? "(Sobrante)" : "(Faltante)");
-
-        $finalNote .= "\nDiferencia:      " . $diffSymbol . "$" . number_format($difference, 2) . " " . $diffLabel;
-        $finalNote .= "\n\n--- COMISIÓN ---";
-        $finalNote .= "\nPago por turno:  $" . number_format($commissionBase, 2);
-        $finalNote .= "\nAsignada a:      " . $affectedAttendances . " empleados.";
-
-        $dailyOperation->update([
-            'cash_end' => $validated['cash_end'],
-            'is_closed' => true,
-            'notes' => trim($finalNote)
-        ]);
-
-        return redirect()->back()->with('success', "Corte realizado. Comisión de $$commissionBase guardada para $affectedAttendances empleados.");
     }
 }

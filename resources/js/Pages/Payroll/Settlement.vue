@@ -139,7 +139,8 @@ const closePayroll = () => {
                             </div>
 
                             <!-- Festivos Laborados -->
-                            <div v-if="item.breakdown?.holidays_worked > 0"
+                            <!-- CORRECCIÓN: Se oculta si el importe es 0, aunque haya días -->
+                            <div v-if="item.totals_breakdown?.salary_holidays_worked > 0"
                                 class="flex justify-between items-center py-1 border-b border-yellow-50 pb-1">
                                 <span class="text-yellow-700 font-medium">Festivos laborados</span>
                                 <div class="flex items-center gap-2">
@@ -158,7 +159,8 @@ const closePayroll = () => {
                             </div>
 
                             <!-- Descansos Festivos -->
-                            <div v-if="item.breakdown?.holidays_rest > 0"
+                            <!-- CORRECCIÓN: Se oculta si el importe es 0, aunque haya días -->
+                            <div v-if="item.totals_breakdown?.salary_holidays_rest > 0"
                                 class="flex justify-between items-center py-1 border-b border-emerald-50 pb-1">
                                 <span class="text-emerald-600 font-medium">Festivos (descanso)</span>
                                 <div class="flex items-center gap-2">

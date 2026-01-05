@@ -317,13 +317,15 @@ onBeforeUnmount(() => {
                             </div>
                             
                             <!-- Festivos Laborados -->
-                            <div v-if="bd.holidays_worked > 0" class="flex justify-between items-center">
+                            <!-- CORRECCIÓN: Mostrar solo si el MONTO calculado es mayor a 0 -->
+                            <div v-if="getHolidayWorkedAmount() > 0" class="flex justify-between items-center">
                                 <span class="text-yellow-700">Festivos laborados ({{ bd.holidays_worked }})</span>
                                 <span class="font-bold text-yellow-700">+{{ formatCurrency(getHolidayWorkedAmount()) }}</span>
                             </div>
                             
                             <!-- Festivos Descanso -->
-                            <div v-if="bd.holidays_rest > 0" class="flex justify-between items-center">
+                            <!-- CORRECCIÓN: Mostrar solo si el MONTO calculado es mayor a 0 -->
+                            <div v-if="getHolidayRestAmount() > 0" class="flex justify-between items-center">
                                 <span class="text-emerald-700">Festivos descanso ({{ bd.holidays_rest }})</span>
                                 <span class="font-bold text-emerald-700">{{ formatCurrency(getHolidayRestAmount()) }}</span>
                             </div>
