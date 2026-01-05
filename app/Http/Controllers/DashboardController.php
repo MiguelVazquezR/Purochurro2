@@ -163,11 +163,23 @@ class DashboardController extends Controller
                 'photo' => $e->profile_photo_url
             ]);
 
+        // 6. CÁLCULO DE DÍAS DE VACACIONES AL AÑO (REGLA DE NEGOCIO)
+        // Se cuenta cuántos días de la semana típica no son nulos
+        $schedule = $employee->default_schedule_template;
+        $activeDays = 0;
+        if (is_array($schedule)) {
+            $activeDays = count(array_filter($schedule, function($val) {
+                return !is_null($val);
+            }));
+        }
+        $entitledDays = $activeDays; // Días que le corresponden al año (ej: 5 si trabaja 5 días)
+
         return Inertia::render('Dashboard', [
             'isAdmin' => false,
             'employee' => [
                 'first_name' => $employee->first_name,
                 'vacation_balance' => $employee->vacation_balance,
+                'entitled_days' => $entitledDays, // Enviamos el total anual correspondiente
             ],
             'stats' => [
                 'next_shift' => $nextSchedule ? [

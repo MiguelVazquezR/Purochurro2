@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Expense;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
+use Illuminate\Support\Facades\DB; // <-- Importante para la transacción
 
 class ExpenseController extends Controller
 {
@@ -25,11 +26,9 @@ class ExpenseController extends Controller
         }
 
         // --- Ordenamiento ---
-        // Manejamos el ordenamiento dinámico o por defecto
         $sortField = $request->input('sortField', 'date');
-        $sortOrder = $request->input('sortOrder', 'desc'); // 'asc' o 'desc'
+        $sortOrder = $request->input('sortOrder', 'desc'); 
         
-        // Mapeo simple para asegurar que solo ordenamos por columnas permitidas
         $allowedSorts = ['date', 'concept', 'amount', 'created_at'];
         if (in_array($sortField, $allowedSorts)) {
              $query->orderBy($sortField, $sortOrder);
@@ -37,7 +36,6 @@ class ExpenseController extends Controller
              $query->orderBy('date', 'desc');
         }
 
-        // Siempre un orden secundario para consistencia en la paginación
         $query->orderBy('created_at', 'desc');
 
         $expenses = $query->paginate(10)->withQueryString();
@@ -48,28 +46,48 @@ class ExpenseController extends Controller
         ]);
     }
 
-    // --- NUEVO MÉTODO AGREGADO ---
     public function create()
     {
         return Inertia::render('Expense/Create');
     }
 
+    // --- STORE ACTUALIZADO PARA MÚLTIPLES REGISTROS ---
     public function store(Request $request)
     {
+        // Validamos un array de objetos 'items'
         $validated = $request->validate([
-            'concept' => 'required|string|max:255',
-            'amount' => 'required|numeric|min:0.01',
-            'date' => 'required|date',
-            'notes' => 'nullable|string|max:1000',
+            'items' => 'required|array|min:1',
+            'items.*.concept' => 'required|string|max:255',
+            'items.*.amount' => 'required|numeric|min:0.01',
+            'items.*.date' => 'required|date',
+            'items.*.notes' => 'nullable|string|max:1000',
+        ], [
+            'items.required' => 'Debes registrar al menos un gasto.',
+            'items.*.concept.required' => 'El concepto es obligatorio en todas las líneas.',
+            'items.*.amount.required' => 'El monto es obligatorio en todas las líneas.',
         ]);
 
-        $request->user()->expenses()->create($validated);
+        try {
+            DB::transaction(function () use ($request, $validated) {
+                foreach ($validated['items'] as $item) {
+                    $request->user()->expenses()->create([
+                        'concept' => $item['concept'],
+                        'amount' => $item['amount'],
+                        'date' => $item['date'],
+                        'notes' => $item['notes'] ?? null,
+                    ]);
+                }
+            });
 
-        return redirect()->route('expenses.index')
-            ->with('success', 'Gasto registrado correctamente.');
+            $count = count($validated['items']);
+            return redirect()->route('expenses.index')
+                ->with('success', "Se han registrado {$count} gastos correctamente.");
+
+        } catch (\Exception $e) {
+            return back()->with('error', 'Ocurrió un error al guardar los gastos: ' . $e->getMessage());
+        }
     }
 
-    // Método edit opcional si planeas hacer una página de edición dedicada también
     public function edit(Expense $expense)
     {
         return Inertia::render('Expense/Edit', [

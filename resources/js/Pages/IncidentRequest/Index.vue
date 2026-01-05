@@ -1,21 +1,8 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
-import { useForm, router } from '@inertiajs/vue3';
+import { useForm, router, Link } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Dialog from 'primevue/dialog';
-import Button from 'primevue/button';
-import InputText from 'primevue/inputtext';
-import Textarea from 'primevue/textarea';
-import Select from 'primevue/select';
-import DatePicker from 'primevue/datepicker';
-import DataTable from 'primevue/datatable';
-import Column from 'primevue/column';
-import Tag from 'primevue/tag';
-import Message from 'primevue/message';
 import { useToast } from "primevue/usetoast";
-import Toast from 'primevue/toast';
-import axios from 'axios';
-import ProgressSpinner from 'primevue/progressspinner';
 
 // --- IMPORTAR DRIVER.JS PARA EL TOUR ---
 import { driver } from "driver.js";
@@ -25,6 +12,7 @@ const props = defineProps({
     requests: Object,
     canApprove: Boolean, // True = Admin, False = Empleado
     incidentTypes: Array, // Lista de valores (strings)
+    employeeStats: Object, // { balance: number, entitled_days: number } (Solo empleados)
 });
 
 const toast = useToast();
@@ -49,6 +37,20 @@ const incidentLabels = {
 };
 
 const getIncidentLabel = (value) => incidentLabels[value] || value;
+
+// Iconos para vista móvil
+const getIncidentIcon = (type) => {
+    if (type === 'vacaciones') return 'pi pi-sun';
+    if (type && type.includes('incapacidad')) return 'pi pi-heart-fill';
+    if (type && type.includes('falta')) return 'pi pi-exclamation-triangle';
+    return 'pi pi-file';
+};
+
+const getIncidentColorClass = (type) => {
+    if (type === 'vacaciones') return 'text-orange-500 bg-orange-50';
+    if (type && type.includes('incapacidad')) return 'text-red-500 bg-red-50';
+    return 'text-blue-500 bg-blue-50';
+};
 
 // Solo mostramos opciones relevantes para solicitar
 const requestOptions = props.incidentTypes
@@ -98,6 +100,22 @@ const calculatedDays = computed(() => {
     if (end < start) return 0;
     const diffTime = Math.abs(end - start);
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // +1 para incluir el día final
+});
+
+// VALIDACIÓN DE VACACIONES
+const vacationRestriction = computed(() => {
+    if (createForm.incident_type === 'vacaciones' && props.employeeStats) {
+        const balance = Number(props.employeeStats.balance);
+        const required = Number(props.employeeStats.entitled_days);
+        
+        if (balance < required) {
+            return {
+                locked: true,
+                message: `No puedes solicitar vacaciones aún. Necesitas acumular tu meta anual de ${required} días (Saldo actual: ${balance}).`
+            };
+        }
+    }
+    return { locked: false, message: '' };
 });
 
 const submitCreate = () => {
@@ -176,7 +194,6 @@ const disableBlocking = () => {
 const startTour = () => {
     enableBlocking();
 
-    // Definimos los pasos base
     const steps = [
         { 
             element: '#tour-incidents-header', 
@@ -191,7 +208,6 @@ const startTour = () => {
         }
     ];
 
-    // Paso específico para empleados: Botón de crear
     if (!props.canApprove) {
         steps.push({
             element: '#tour-create-btn',
@@ -202,28 +218,15 @@ const startTour = () => {
         });
     }
 
-    // Paso común: Tabla
     steps.push({
-        element: '#tour-incidents-table',
+        element: '#tour-incidents-container',
         popover: {
             title: props.canApprove ? 'Historial de Solicitudes' : 'Historial y Estado',
             description: props.canApprove
-                ? 'Revisa el historial de todas las solicitudes recibidas. Podrás ver el motivo y el estado actual de cada una.'
-                : 'Aquí verás el estado de tus solicitudes anteriores. Mantente atento a si fueron "Aprobadas" o "Rechazadas".',
+                ? 'Revisa el historial. En computadoras verás una tabla detallada, en móviles verás tarjetas fáciles de leer.'
+                : 'Aquí verás el estado de tus solicitudes (Aprobadas o Rechazadas).',
         }
     });
-
-    // Paso específico para administradores: Columna de acciones (si hay datos)
-    if (props.canApprove && props.requests.data.length > 0) {
-        // Intentamos apuntar a la celda de acciones si existe, si no, al encabezado
-        steps.push({
-            element: '.p-datatable-tbody tr:first-child td:last-child', 
-            popover: {
-                title: 'Aprobar o Rechazar',
-                description: 'Usa estos botones para dar respuesta rápida a las solicitudes pendientes. Al aprobar, se actualizará automáticamente la asistencia del empleado.',
-            }
-        });
-    }
 
     const tourDriver = driver({
         showProgress: true,
@@ -288,7 +291,6 @@ onBeforeUnmount(() => {
              :class="{ '!pointer-events-none select-none': isTourActive }">
             
             <!-- Header -->
-            <!-- ID TOUR: Header -->
             <div id="tour-incidents-header" class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
                 <div>
                     <h1 class="text-2xl font-black text-gray-900">
@@ -301,114 +303,179 @@ onBeforeUnmount(() => {
                     </p>
                 </div>
 
-                <!-- ID TOUR: Botón Crear -->
+                <!-- Botón Crear -->
                 <div id="tour-create-btn">
                     <Button 
                         v-if="!canApprove" 
                         label="Solicitar permiso" 
                         icon="pi pi-plus" 
                         @click="showCreateModal = true" 
-                        class="shadow-lg"
+                        class="shadow-lg w-full md:w-auto"
                     />
                 </div>
             </div>
 
-            <!-- Tabla de Solicitudes -->
-            <!-- ID TOUR: Tabla -->
-            <div id="tour-incidents-table" class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                <DataTable :value="requests.data" :rows="10" paginator stripedRows>
-                    <template #empty>
-                        <div class="text-center py-12 text-gray-500">
-                            <i class="pi pi-inbox !text-4xl mb-3 opacity-50"></i>
-                            <p>No hay solicitudes registradas.</p>
+            <!-- Contenedor Principal (ID para el Tour) -->
+            <div id="tour-incidents-container">
+                
+                <!-- ============================ -->
+                <!--    VISTA ESCRITORIO (Tabla)  -->
+                <!-- ============================ -->
+                <div class="hidden md:block bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                    <DataTable :value="requests.data" :rows="10" paginator stripedRows>
+                        <template #empty>
+                            <div class="text-center py-12 text-gray-500">
+                                <i class="pi pi-inbox !text-4xl mb-3 opacity-50"></i>
+                                <p>No hay solicitudes registradas.</p>
+                            </div>
+                        </template>
+
+                        <Column field="id" header="#" sortable class="w-[50px]">
+                            <template #body="{ data }">
+                                <span class="text-xs text-gray-400 font-bold">#{{ data.id }}</span>
+                            </template>
+                        </Column>
+
+                        <Column v-if="canApprove" header="Empleado" sortable field="employee.first_name">
+                            <template #body="{ data }">
+                                <div class="font-bold text-gray-800">{{ data.employee?.first_name }} {{ data.employee?.last_name }}</div>
+                            </template>
+                        </Column>
+
+                        <Column header="Tipo de Permiso">
+                            <template #body="{ data }">
+                                <div class="flex items-center gap-2">
+                                    <i :class="getIncidentIcon(data.incident_type)" class="text-gray-500"></i>
+                                    <span class="font-medium text-gray-700">{{ getIncidentLabel(data.incident_type) }}</span>
+                                </div>
+                            </template>
+                        </Column>
+
+                        <Column header="Periodo">
+                            <template #body="{ data }">
+                                <div class="flex flex-col text-sm">
+                                    <span class="font-bold text-gray-800">
+                                        {{ formatDate(data.start_date) }} <i class="pi pi-arrow-right text-[10px] mx-1 text-gray-400"></i> {{ formatDate(data.end_date) }}
+                                    </span>
+                                    <span class="text-xs text-gray-500 mt-0.5">
+                                        {{ data.start_date === data.end_date ? '1 día' : 'Varios días' }}
+                                    </span>
+                                </div>
+                            </template>
+                        </Column>
+
+                        <Column header="Motivo / Justificación" class="max-w-[200px]">
+                            <template #body="{ data }">
+                                <div class="text-sm text-gray-600 truncate" :title="data.employee_reason">
+                                    {{ data.employee_reason }}
+                                </div>
+                                <div v-if="data.status === 'rejected' && data.admin_response" class="mt-1 text-xs text-red-600 bg-red-50 p-1 rounded">
+                                    <strong>Resp:</strong> {{ data.admin_response }}
+                                </div>
+                            </template>
+                        </Column>
+
+                        <Column header="Estado" field="status" sortable>
+                            <template #body="{ data }">
+                                <Tag :value="getStatusLabel(data.status)" :severity="getStatusSeverity(data.status)" rounded />
+                            </template>
+                        </Column>
+
+                        <Column v-if="canApprove" header="Acciones" class="w-[120px] text-center">
+                            <template #body="{ data }">
+                                <div v-if="data.status === 'pending'" class="flex gap-2 justify-center">
+                                    <Button icon="pi pi-check" severity="success" rounded text @click="approveRequest(data)" />
+                                    <Button icon="pi pi-times" severity="danger" rounded text @click="openRejectModal(data)" />
+                                </div>
+                                <span v-else class="text-xs text-gray-400 italic">Procesado</span>
+                            </template>
+                        </Column>
+                    </DataTable>
+                </div>
+
+                <!-- ============================ -->
+                <!--    VISTA MÓVIL (Tarjetas)    -->
+                <!-- ============================ -->
+                <div class="md:hidden space-y-4">
+                    <div v-if="requests.data.length === 0" class="text-center py-12 text-gray-500 bg-white rounded-xl shadow-sm">
+                        <i class="pi pi-inbox !text-4xl mb-3 opacity-50"></i>
+                        <p>No hay solicitudes.</p>
+                    </div>
+
+                    <div v-for="request in requests.data" :key="request.id" class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col gap-3">
+                        
+                        <!-- Header Tarjeta -->
+                        <div class="flex justify-between items-start">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-full flex items-center justify-center" :class="getIncidentColorClass(request.incident_type)">
+                                    <i :class="getIncidentIcon(request.incident_type)" class="text-lg"></i>
+                                </div>
+                                <div>
+                                    <p class="font-bold text-gray-900 text-sm">{{ getIncidentLabel(request.incident_type) }}</p>
+                                    <p class="text-xs text-gray-400 font-mono">Folio #{{ request.id }}</p>
+                                </div>
+                            </div>
+                            <Tag :value="getStatusLabel(request.status)" :severity="getStatusSeverity(request.status)" rounded class="text-xs" />
                         </div>
-                    </template>
 
-                    <!-- ID -->
-                    <Column field="id" header="#" sortable class="w-[50px]">
-                        <template #body="{ data }">
-                            <span class="text-xs text-gray-400 font-bold">#{{ data.id }}</span>
-                        </template>
-                    </Column>
+                        <!-- Info Empleado (Si es admin) -->
+                        <div v-if="canApprove" class="bg-gray-50 p-2 rounded-lg flex items-center gap-2">
+                             <div class="w-6 h-6 bg-gray-200 rounded-full flex items-center justify-center text-[10px] font-bold text-gray-600">
+                                {{ request.employee.first_name[0] }}
+                             </div>
+                             <span class="text-sm font-bold text-gray-700">{{ request.employee.first_name }} {{ request.employee.last_name }}</span>
+                        </div>
 
-                    <!-- Empleado (Solo Admin) -->
-                    <Column v-if="canApprove" header="Empleado" sortable field="employee.first_name">
-                        <template #body="{ data }">
-                            <div class="font-bold text-gray-800">{{ data.employee?.first_name }} {{ data.employee?.last_name }}</div>
-                        </template>
-                    </Column>
+                        <!-- Fechas -->
+                        <div class="flex items-center gap-2 text-sm text-gray-600">
+                            <i class="pi pi-calendar text-gray-400"></i>
+                            <span class="font-medium">{{ formatDate(request.start_date) }}</span>
+                            <i class="pi pi-arrow-right text-[10px] text-gray-300"></i>
+                            <span class="font-medium">{{ formatDate(request.end_date) }}</span>
+                        </div>
 
-                    <!-- Tipo -->
-                    <Column header="Tipo de Permiso">
-                        <template #body="{ data }">
-                            <div class="flex items-center gap-2">
-                                <i v-if="data.incident_type === 'vacaciones'" class="pi pi-sun text-orange-500"></i>
-                                <i v-else-if="data.incident_type.includes('incapacidad')" class="pi pi-heart-fill text-red-500"></i>
-                                <i v-else class="pi pi-file text-blue-500"></i>
-                                <span class="font-medium text-gray-700">{{ getIncidentLabel(data.incident_type) }}</span>
-                            </div>
-                        </template>
-                    </Column>
+                        <!-- Motivo -->
+                        <div class="text-sm text-gray-500 bg-gray-50 p-3 rounded-lg italic border border-gray-100 relative">
+                            <i class="pi pi-comment absolute top-3 left-2 text-gray-300 text-xs"></i>
+                            <span class="pl-4 block">"{{ request.employee_reason }}"</span>
+                        </div>
 
-                    <!-- Fechas -->
-                    <Column header="Periodo">
-                        <template #body="{ data }">
-                            <div class="flex flex-col text-sm">
-                                <span class="font-bold text-gray-800">
-                                    {{ formatDate(data.start_date) }} <i class="pi pi-arrow-right text-[10px] mx-1 text-gray-400"></i> {{ formatDate(data.end_date) }}
-                                </span>
-                                <!-- Cálculo simple de días si son iguales o difieren -->
-                                <span class="text-xs text-gray-500 mt-0.5">
-                                    {{ data.start_date === data.end_date ? '1 día' : 'Varios días' }}
-                                </span>
-                            </div>
-                        </template>
-                    </Column>
+                        <!-- Respuesta Admin (Si fue rechazado) -->
+                        <div v-if="request.status === 'rejected' && request.admin_response" class="text-xs text-red-600 bg-red-50 p-2 rounded border border-red-100">
+                            <strong>Respuesta:</strong> {{ request.admin_response }}
+                        </div>
 
-                    <!-- Motivo -->
-                    <Column header="Motivo / Justificación" class="max-w-[200px]">
-                        <template #body="{ data }">
-                            <div class="text-sm text-gray-600 truncate" :title="data.employee_reason">
-                                {{ data.employee_reason }}
-                            </div>
-                            <div v-if="data.status === 'rejected' && data.admin_response" class="mt-1 text-xs text-red-600 bg-red-50 p-1 rounded">
-                                <strong>Resp:</strong> {{ data.admin_response }}
-                            </div>
-                        </template>
-                    </Column>
+                        <!-- Acciones (Admin) -->
+                        <div v-if="canApprove && request.status === 'pending'" class="grid grid-cols-2 gap-3 mt-2 pt-3 border-t border-gray-100">
+                            <Button label="Rechazar" icon="pi pi-times" severity="danger" outlined class="w-full p-button-sm" @click="openRejectModal(request)" />
+                            <Button label="Aprobar" icon="pi pi-check" severity="success" class="w-full p-button-sm" @click="approveRequest(request)" />
+                        </div>
+                    </div>
 
-                    <!-- Estado -->
-                    <Column header="Estado" field="status" sortable>
-                        <template #body="{ data }">
-                            <Tag :value="getStatusLabel(data.status)" :severity="getStatusSeverity(data.status)" rounded />
-                        </template>
-                    </Column>
+                    <!-- Paginación Simple Móvil -->
+                    <div v-if="requests.data.length > 0" class="flex justify-between items-center py-4 px-2">
+                         <Link 
+                            v-if="requests.prev_page_url" 
+                            :href="requests.prev_page_url"
+                            class="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-bold text-gray-600 shadow-sm"
+                        >
+                            Anterior
+                        </Link>
+                        <span v-else class="text-gray-300 text-sm">Anterior</span>
 
-                    <!-- Acciones (Solo Admin y Pendientes) -->
-                    <Column v-if="canApprove" header="Acciones" class="w-[120px] text-center">
-                        <template #body="{ data }">
-                            <div v-if="data.status === 'pending'" class="flex gap-2 justify-center">
-                                <Button 
-                                    icon="pi pi-check" 
-                                    severity="success" 
-                                    rounded 
-                                    text 
-                                    v-tooltip.top="'Aprobar'"
-                                    @click="approveRequest(data)" 
-                                />
-                                <Button 
-                                    icon="pi pi-times" 
-                                    severity="danger" 
-                                    rounded 
-                                    text 
-                                    v-tooltip.top="'Rechazar'"
-                                    @click="openRejectModal(data)" 
-                                />
-                            </div>
-                            <span v-else class="text-xs text-gray-400 italic">Procesado</span>
-                        </template>
-                    </Column>
-                </DataTable>
+                        <span class="text-xs text-gray-400">Pág {{ requests.current_page }} de {{ requests.last_page }}</span>
+
+                        <Link 
+                            v-if="requests.next_page_url" 
+                            :href="requests.next_page_url"
+                            class="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-bold text-gray-600 shadow-sm"
+                        >
+                            Siguiente
+                        </Link>
+                        <span v-else class="text-gray-300 text-sm">Siguiente</span>
+                    </div>
+                </div>
+
             </div>
         </div>
 
@@ -437,16 +504,26 @@ onBeforeUnmount(() => {
                         :class="{'p-invalid': createForm.errors.incident_type}"
                     />
                     <small class="text-red-500" v-if="createForm.errors.incident_type">{{ createForm.errors.incident_type }}</small>
+                    
+                    <!-- ADVERTENCIA DE VACACIONES -->
+                    <Message 
+                        v-if="vacationRestriction.locked" 
+                        severity="warn" 
+                        :closable="false" 
+                        class="mt-1"
+                    >
+                        {{ vacationRestriction.message }}
+                    </Message>
                 </div>
 
                 <div class="grid grid-cols-2 gap-4">
                     <div class="flex flex-col gap-2">
                         <label class="font-bold text-gray-700">Fecha inicio</label>
-                        <DatePicker v-model="createForm.start_date" showIcon dateFormat="yy-mm-dd" :minDate="new Date()" />
+                        <DatePicker fluid v-model="createForm.start_date" showIcon dateFormat="yy-mm-dd" :minDate="new Date()" />
                     </div>
                     <div class="flex flex-col gap-2">
                         <label class="font-bold text-gray-700">Fecha fin</label>
-                        <DatePicker v-model="createForm.end_date" showIcon dateFormat="yy-mm-dd" :minDate="createForm.start_date" />
+                        <DatePicker fluid v-model="createForm.end_date" showIcon dateFormat="yy-mm-dd" :minDate="createForm.start_date" />
                     </div>
                 </div>
 
@@ -475,6 +552,7 @@ onBeforeUnmount(() => {
                         icon="pi pi-send" 
                         @click="submitCreate" 
                         :loading="createForm.processing"
+                        :disabled="vacationRestriction.locked" 
                     />
                 </div>
             </template>
@@ -486,6 +564,7 @@ onBeforeUnmount(() => {
             modal 
             header="Rechazar solicitud" 
             :style="{ width: '400px' }"
+            :breakpoints="{ '960px': '75vw', '641px': '90vw' }"
         >
             <div class="flex flex-col gap-4 pt-2">
                 <p class="text-sm text-gray-600">

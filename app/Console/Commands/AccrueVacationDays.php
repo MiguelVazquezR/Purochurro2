@@ -21,43 +21,76 @@ class AccrueVacationDays extends Command
      *
      * @var string
      */
-    protected $description = 'Suma la parte proporcional semanal de vacaciones (basado en 6 días anuales) a todos los empleados activos.';
+    protected $description = 'Suma la parte proporcional semanal de vacaciones basada en los días laborados por semana de cada empleado activo.';
 
     /**
      * Ejecuta el comando.
      */
     public function handle()
     {
-        // 1. Definir la regla de negocio
-        // 6 días al año / 52 semanas = ~0.11538 días por semana
-        $annualDays = 6;
-        $weeklyAccrual = $annualDays / 52;
-
-        $this->info("Iniciando acumulación semanal de vacaciones...");
-        $this->info("Monto a sumar por empleado: " . number_format($weeklyAccrual, 5) . " días.");
-
+        $this->info("Iniciando acumulación semanal de vacaciones personalizada...");
+        
+        // Obtenemos todos los empleados activos
         $employees = Employee::where('is_active', true)->get();
         $count = 0;
+        $skipped = 0;
 
         DB::beginTransaction();
         try {
             foreach ($employees as $employee) {
-                // Usamos el método que ya tienes en el modelo Employee
-                // userId = null indica que fue el "Sistema" quien hizo la acción
+                // 1. Determinar días trabajados por semana según su plantilla
+                // La estructura es tipo: {"monday":2, "tuesday":null, ...}
+                $schedule = $employee->default_schedule_template;
+                
+                $daysWorkedPerWeek = 0;
+
+                if (is_array($schedule)) {
+                    // Filtramos el array para quitar los valores nulos (días de descanso)
+                    // y contamos cuántos días tienen asignado un turno (valor no nulo)
+                    $activeDays = array_filter($schedule, function($val) {
+                        return !is_null($val);
+                    });
+                    $daysWorkedPerWeek = count($activeDays);
+                }
+
+                // Si no tiene días registrados, saltamos este empleado
+                if ($daysWorkedPerWeek <= 0) {
+                    $skipped++;
+                    // Opcional: Loguear advertencia solo en modo debug
+                    // Log::warning("Empleado {$employee->id} omitido: Sin días laborales configurados.");
+                    continue; 
+                }
+
+                // 2. Definir la regla de negocio dinámica
+                // Días de vacaciones al año = Días trabajados por semana
+                $annualDays = $daysWorkedPerWeek;
+                
+                // Cálculo proporcional semanal
+                $weeklyAccrual = $annualDays / 52;
+
+                // 3. Aplicar el ajuste
+                // userId = null indica que fue el "Sistema"
                 $employee->adjustVacationBalance(
                     $weeklyAccrual, 
                     'accrual', 
-                    'Acumulación Semanal Automática (Sistema)', 
+                    "Acumulación Semanal (Base {$daysWorkedPerWeek} días/año)", 
                     null 
                 );
                 
+                $this->line("Empleado: {$employee->id} | Días Laborales: {$daysWorkedPerWeek} | Sumado: " . number_format($weeklyAccrual, 5));
                 $count++;
             }
 
             DB::commit();
             
-            $this->info("¡Éxito! Se actualizaron las vacaciones de {$count} empleados.");
-            Log::info("Vacaciones semanales acumuladas para {$count} empleados.");
+            $this->info("------------------------------------------------");
+            $this->info("¡Éxito!");
+            $this->info("Empleados procesados: {$count}");
+            if ($skipped > 0) {
+                $this->warn("Empleados omitidos (sin horario o 0 días trabajados): {$skipped}");
+            }
+            
+            Log::info("Vacaciones semanales acumuladas para {$count} empleados (dinámico según horario).");
             
             return Command::SUCCESS;
 

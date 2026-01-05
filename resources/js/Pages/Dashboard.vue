@@ -487,12 +487,28 @@ onBeforeUnmount(() => {
                                 <h3 class="text-4xl font-black text-purple-600">
                                     {{ employee.vacation_balance }} <span class="text-lg text-gray-400 font-bold">días</span>
                                 </h3>
-                                <p class="text-sm text-gray-500 mt-2">Saldo disponible para usar.</p>
+                                <div class="text-sm text-gray-500 mt-2">
+                                    <p>Saldo disponible.</p>
+                                    <p class="text-xs text-gray-400 mt-1">
+                                        Meta anual: {{ employee.entitled_days }} días
+                                    </p>
+                                </div>
                             </div>
-                            <!-- Link a Solicitar Días (Estilo corregido) -->
-                            <Link :href="route('incident-requests.index')" class="mt-6 text-sm text-purple-600 font-bold hover:underline flex items-center gap-1">
-                                Solicitar Días <i class="pi pi-arrow-right text-xs"></i>
-                            </Link>
+                            <!-- Link a Solicitar Días (Condicionado) -->
+                            <div v-if="Number(employee.vacation_balance) >= Number(employee.entitled_days)">
+                                <Link :href="route('incident-requests.index')" class="mt-6 text-sm text-purple-600 font-bold hover:underline flex items-center gap-1">
+                                    Solicitar Días <i class="pi pi-arrow-right text-xs"></i>
+                                </Link>
+                            </div>
+                            <div v-else class="mt-6 group relative">
+                                <span class="text-sm text-gray-300 font-bold flex items-center gap-1 cursor-not-allowed">
+                                    Solicitar Días <i class="pi pi-lock text-xs"></i>
+                                </span>
+                                <!-- Tooltip simple -->
+                                <div class="absolute bottom-full left-0 mb-2 hidden group-hover:block w-48 bg-gray-800 text-white text-xs rounded p-2 z-10">
+                                    Debes acumular tus {{ employee.entitled_days }} días completos para solicitar.
+                                </div>
+                            </div>
                         </div>
 
                     </div>
