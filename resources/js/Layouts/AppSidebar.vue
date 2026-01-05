@@ -253,7 +253,7 @@ watchEffect(() => {
             title="Ver información del sistema"
         >
             <div class="text-xs text-surface-400 whitespace-nowrap" :class="collapsed ? 'text-center' : ''">
-                <p v-if="!collapsed" class="group-hover:text-blue-600 transition-colors font-bold">v2.0.0</p>
+                <p v-if="!collapsed" class="group-hover:text-blue-600 transition-colors font-bold">v2.5.0</p>
                 <p v-if="!collapsed" class="font-light">Punto de venta</p>
                 <i v-else class="pi pi-info-circle text-lg text-surface-400 group-hover:text-blue-600 transition-colors"></i>
             </div>
@@ -267,7 +267,7 @@ watchEffect(() => {
             <img src="/images/DTW_logo_negro.webp" alt="DTW Agency" class="h-20 w-auto mb-4 object-contain" />
 
             <h3 class="text-lg font-bold text-gray-800 pt-3 border-t">Punto de venta</h3>
-            <span class="text-xs font-semibold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full mt-1">v2.0.0</span>
+            <span class="text-xs font-semibold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full mt-1">v2.5.0</span>
             
             <p class="text-gray-500 text-sm mt-4 leading-relaxed">
                 Desarrollamos soluciones tecnológicas a medida para potenciar tu negocio.
