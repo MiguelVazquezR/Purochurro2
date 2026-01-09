@@ -467,7 +467,7 @@ onBeforeUnmount(() => {
                                 </h3>
                                 <p class="text-sm text-gray-500 mt-2 flex items-center gap-2">
                                     <i class="pi pi-info-circle"></i> 
-                                    <span>Calculado por <strong>{{ stats.worked_days }} días</strong> trab.</span>
+                                    <span>Calculado por <strong>{{ stats.worked_days }} turnos</strong> trab.</span>
                                 </p>
                             </div>
                             <!-- FIX: Usamos getCurrentLocalDate() para evitar el salto de día por UTC -->
