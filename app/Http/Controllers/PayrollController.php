@@ -124,11 +124,28 @@ class PayrollController extends Controller
 
                 $incident = $attendance ? $attendance->incident_type : null;
                 $holiday = $holidaysLookup->get($monthDay);
+                
+                // --- Cálculo de Turnos y Minutos para la vista ---
+                $shiftsCount = 1;
+                $workedMinutes = 0;
+                
+                if ($attendance && $attendance->check_in && $attendance->check_out) {
+                    try {
+                        $in = Carbon::parse($attendance->check_in);
+                        $out = Carbon::parse($attendance->check_out);
+                        if ($out->lessThan($in)) $out->addDay();
+                        $workedMinutes = $in->diffInMinutes($out);
+                        
+                        // Regla visual: >= 540 minutos (9 horas)
+                        if ($workedMinutes >= 540) {
+                            $shiftsCount = 2;
+                        }
+                    } catch (\Exception $e) {}
+                }
 
-                // --- ACTUALIZADO: Mostrar nombre del Festivo aunque no se pague ---
                 if (!$attendance) {
                     if ($holiday) {
-                        $incidentLabel = $holiday->name; // Ej: "Año Nuevo"
+                        $incidentLabel = $holiday->name; 
                         $incident = IncidentType::DIA_FESTIVO->value;
                     } elseif ($schedule && $schedule->shift_id) {
                         $incidentLabel = 'Falta / Pendiente';
@@ -143,7 +160,7 @@ class PayrollController extends Controller
                     'date' => $dateStr,
                     'day_name' => $period->locale('es')->dayName,
                     'attendance_id' => $attendance?->id,
-                    'incident_type' => $incident, // Ajustado para tomar valor correcto
+                    'incident_type' => $incident, 
                     'incident_label' => $incidentLabel,
                     'check_in' => $attendance?->check_in ? Carbon::parse($attendance->check_in)->format('H:i') : null,
                     'check_out' => $attendance?->check_out ? Carbon::parse($attendance->check_out)->format('H:i') : null,
@@ -159,6 +176,9 @@ class PayrollController extends Controller
                         'name' => $holiday->name,
                         'multiplier' => $holiday->pay_multiplier ?? 2.0
                     ] : null,
+                    // Nuevos campos para visualización de turnos
+                    'shifts_count' => $shiftsCount,
+                    'worked_minutes' => $workedMinutes,
                 ];
 
                 $period->addDay();
@@ -244,7 +264,6 @@ class PayrollController extends Controller
             if ($attendance) {
                 $incidentLabel = $attendance->incident_type->label();
             } else {
-                // --- ACTUALIZADO: Mostrar nombre del Festivo ---
                 if ($holiday) {
                     $incidentLabel = $holiday->name; 
                 } elseif ($schedule && $schedule->shift_id) {
@@ -470,9 +489,6 @@ class PayrollController extends Controller
         $employees = Employee::with(['recurringBonuses'])->where('is_active', true)->get();
         $payrollService = new PayrollService();
         
-        // ELIMINADO: Lógica de devengo de vacaciones ($weeklyVacationAccrual)
-        // Ahora se maneja mediante el comando 'vacation:accrue-weekly'
-
         DB::beginTransaction();
         try {
             $receiptsCount = 0;
@@ -497,8 +513,6 @@ class PayrollController extends Controller
                     'breakdown_data' => $finalBreakdownData,
                     'paid_at' => $request->mark_as_paid ? now() : null,
                 ]);
-
-                // ELIMINADO: adjustVacationBalance para acumulación semanal
 
                 $totalPayrollAmount += $calc['total_pay'];
                 $receiptsCount++;

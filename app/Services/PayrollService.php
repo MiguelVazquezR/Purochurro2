@@ -99,7 +99,7 @@ class PayrollService
             $monthDay = $current->format('m-d');
             
             $attendance = $attendances->get($dateStr);
-            $schedule = $schedules->get($dateStr); // <-- Aquí verificamos el horario
+            $schedule = $schedules->get($dateStr); 
             $holiday = $holidays->get($monthDay); 
             $operation = $dailyOperations->get($dateStr);
 
@@ -112,6 +112,9 @@ class PayrollService
             $dayExtraMins = 0;
             $dayIsAbsent = false;
             $dayIsAttendance = false;
+            
+            // Variable clave para bonos por turno
+            $dayWorkedMinutes = 0; 
 
             $shiftsCount = 1;
 
@@ -121,11 +124,15 @@ class PayrollService
                     try {
                         $in = Carbon::parse($attendance->check_in);
                         $out = Carbon::parse($attendance->check_out);
+                        
+                        // Corrección paso de medianoche
                         if ($out->lessThan($in)) $out->addDay();
 
-                        $hoursWorked = $in->diffInHours($out);
+                        // Calculamos minutos exactos trabajados
+                        $dayWorkedMinutes = $in->diffInMinutes($out);
 
-                        if ($hoursWorked > 9) {
+                        // Regla: A partir de 9 horas (540 minutos) son 2 turnos
+                        if ($dayWorkedMinutes >= 540) {
                             $shiftsCount = 2;
                             $counters['double_shifts']++;
                         }
@@ -145,6 +152,7 @@ class PayrollService
                     } catch (\Exception $e) {}
                 }
 
+                // Cálculo de minutos extra contra horario oficial
                 if ($attendance->check_in && $attendance->check_out && $schedule?->shift) {
                     try {
                         $shiftStartStr = Carbon::parse($schedule->shift->start_time)->format('H:i:s');
@@ -158,11 +166,11 @@ class PayrollService
                         $workedEnd = Carbon::parse("{$dateStr} {$attendance->check_out}");
                         if ($workedEnd->lt($workedStart)) $workedEnd->addDay();
 
-                        $workedMinutes = $workedStart->diffInMinutes($workedEnd);
+                        $workedMinutesCalc = $workedStart->diffInMinutes($workedEnd);
                         $expectedMinutes = $expectedStart->diffInMinutes($expectedEnd);
 
-                        if ($workedMinutes > $expectedMinutes) {
-                            $dayExtraMins += ($workedMinutes - $expectedMinutes);
+                        if ($workedMinutesCalc > $expectedMinutes) {
+                            $dayExtraMins += ($workedMinutesCalc - $expectedMinutes);
                         }
                     } catch (\Exception $e) {}
                 }
@@ -183,7 +191,7 @@ class PayrollService
                         $status = 'Vacaciones';
                         $dayCategory = 'vacation';
                         break;
-                    case IncidentType::DIA_FESTIVO: // Marcado manual como festivo
+                    case IncidentType::DIA_FESTIVO: 
                         $isPayable = true;
                         $counters['holidays_rest']++;
                         $status = 'Día Festivo';
@@ -218,13 +226,11 @@ class PayrollService
             } else {
                 // --- Lógica si NO ASISTIÓ ---
                 if ($holiday) {
-                    // Verificar si tenía turno programado (shift_id no nulo)
+                    // Verificar si tenía turno programado
                     if ($schedule && $schedule->shift_id) {
-                        // Tenía que trabajar -> Se paga como Festivo
                         $isPayable = true;
                         $status = "Feriado ({$holiday->name})";
                     } else {
-                        // Era su día de descanso o no tenía turno -> No se paga extra
                         $isPayable = false; 
                         $status = "Feriado ({$holiday->name}) - Descanso";
                     }
@@ -278,14 +284,12 @@ class PayrollService
                 $moneyBreakdown['salary_incapacity'] += $dayPay;
                 $totalPay += $dayPay;
             } elseif ($isPayable) {
-                // Solo pagamos si se marcó como payable (Asistencia, Vacaciones, o Festivo Programado)
                 $dayPay = $employee->base_salary * $shiftsCount;
             }
 
             // --- AJUSTES POR FERIADO TRABAJADO ---
             if ($holiday) {
                 if ($attendance && $attendance->incident_type === IncidentType::ASISTENCIA) {
-                    // Trabajó en festivo: Se paga el día base (ya sumado arriba) + Multiplicador
                     $multiplier = $holiday->pay_multiplier;
                     $dayPay = $employee->base_salary * $multiplier * $shiftsCount;
 
@@ -321,6 +325,8 @@ class PayrollService
                 'extra_minutes' => $dayExtraMins,
                 'is_attendance' => $dayIsAttendance,
                 'is_absent' => $dayIsAbsent,
+                // AQUÍ ESTABA EL PROBLEMA: No se estaba enviando 'worked_minutes'
+                'worked_minutes' => $dayWorkedMinutes, 
             ];
 
             if ($dayPay > 0 || $attendance || ($holiday && $dayCategory === 'holiday_rest')) {
