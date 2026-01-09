@@ -29,6 +29,15 @@ class BonusService
         
         // Extraemos días trabajados del periodo para uso global
         $workedDays = (float) ($periodStats['attendance_days'] ?? 0);
+        
+        // CÁLCULO TOTAL DE TURNOS DEL PERIODO (Incluyendo regla 9 horas = 2 turnos)
+        $totalPeriodShifts = 0;
+        foreach ($dailyStats as $stat) {
+            if (!empty($stat['is_attendance'])) {
+                $minutes = (float)($stat['worked_minutes'] ?? 0); // Asumimos que viene este dato
+                $totalPeriodShifts += ($minutes >= 540) ? 2 : 1;
+            }
+        }
 
         foreach ($activeBonuses as $bonus) {
             $baseAmount = (float) ($bonus->pivot->amount ?? $bonus->amount);
@@ -69,13 +78,22 @@ class BonusService
                         // En scope daily, "días trabajados" es 1 si asistió ese día específico
                         $dayWorked = $stat['is_attendance'] ? 1 : 0;
                         
+                        // CÁLCULO DE TURNOS DEL DÍA (Regla 9 horas)
+                        $dailyShifts = 0;
+                        if ($stat['is_attendance']) {
+                            $minutes = (float)($stat['worked_minutes'] ?? 0);
+                            $dailyShifts = ($minutes >= 540) ? 2 : 1;
+                        }
+                        
+                        // Pasamos dailyShifts en el último argumento para que 'per_shift' lo use
                         $bonusPay += $this->calculateAmount(
                             $behavior,
                             $baseAmount, 
                             $value, 
                             $config['value'], 
                             $config['operator'],
-                            $dayWorked 
+                            $dayWorked,
+                            $dailyShifts // Nuevo argumento
                         );
                     }
                 }
@@ -91,7 +109,8 @@ class BonusService
                         $value, 
                         $config['value'], 
                         $config['operator'],
-                        $workedDays // Pasamos el total de días trabajados en el periodo
+                        $workedDays, // Pasamos el total de días trabajados en el periodo
+                        $totalPeriodShifts // Pasamos el total de turnos acumulados
                     );
                 }
             }
@@ -133,12 +152,13 @@ class BonusService
 
     /**
      * Calcula el monto final considerando el comportamiento.
-     * * @param string $behavior Tipo de pago (fixed_amount, pay_per_unit, per_day_worked)
+     * @param string $behavior Tipo de pago (fixed_amount, pay_per_unit, per_day_worked, per_shift)
      * @param float $baseAmount Monto base definido en el bono
      * @param float $actualValue Valor real de la métrica evaluada (ej. 10 minutos tarde)
      * @param float $targetValue Valor objetivo de la regla (ej. 15 minutos)
      * @param string $operator Operador de comparación
      * @param float $workedDays Días trabajados en el contexto (1 para diario, N para periodo)
+     * @param float $shiftCount Cantidad de turnos calculados (Regla 9h = 2 turnos)
      */
     private function calculateAmount(
         string $behavior, 
@@ -146,9 +166,9 @@ class BonusService
         float $actualValue, 
         float $targetValue, 
         string $operator,
-        float $workedDays = 0
-    ): float {
-        
+        float $workedDays = 0,
+        float $shiftCount = 0
+    ): float {        
         // Opción A: Monto fijo único si se cumple la regla
         // Ej: $500 totales si retardos < 15 min en la semana
         if ($behavior === 'fixed_amount') {
@@ -169,6 +189,12 @@ class BonusService
         // Ej: Si retardos < 15 min en la semana, paga $50 por cada día asistido ($50 * 6 = $300)
         if ($behavior === 'per_day_worked') {
             return $baseAmount * $workedDays;
+        }
+
+        // Opción D: Pago por Turno (Nueva Opción)
+        // Regla: 9 horas o más cuentan como 2 turnos. Menos de 9h cuenta como 1.
+        if ($behavior === 'per_shift') {
+            return $baseAmount * $shiftCount;
         }
 
         return 0.0;

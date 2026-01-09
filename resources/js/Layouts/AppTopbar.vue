@@ -4,10 +4,6 @@ import { Link, router, usePage } from '@inertiajs/vue3';
 import AuthenticationCardLogo from '@/Components/AuthenticationCardLogo.vue';
 import axios from 'axios';
 import { useToast } from 'primevue/usetoast';
-import Button from 'primevue/button';
-import Popover from 'primevue/popover';
-import Dialog from 'primevue/dialog';
-import Menu from 'primevue/menu';
 
 const emit = defineEmits(['toggle-sidebar']);
 const page = usePage();
@@ -20,13 +16,15 @@ const checkInTime = ref(null);
 const checkOutTime = ref(null);
 const op = ref(); // Referencia al Popover
 
-// --- ESTADO DE CÁMARA ---
+// --- ESTADO DE CÁMARA Y UBICACIÓN ---
 const showCameraModal = ref(false);
 const videoRef = ref(null);
 const canvasRef = ref(null);
 const isCameraActive = ref(false);
 const isProcessing = ref(false);
 const stream = ref(null);
+const currentLocation = ref(null); // Almacena { lat, lng }
+const isGettingLocation = ref(false); // Spinner para ubicación
 
 // Menú de usuario
 const userMenu = ref();
@@ -81,10 +79,37 @@ const toggleAttendance = (event) => {
     op.value.toggle(event);
 };
 
-const openCamera = () => {
-    op.value.hide(); // Ocultar popover
-    showCameraModal.value = true;
-    startCamera();
+// --- VALIDACIÓN DE UBICACIÓN ---
+const requestLocationAndOpenCamera = () => {
+    if (!navigator.geolocation) {
+        toast.add({ severity: 'error', summary: 'Error', detail: 'Tu navegador no soporta geolocalización.', life: 4000 });
+        return;
+    }
+
+    isGettingLocation.value = true;
+
+    navigator.geolocation.getCurrentPosition(
+        (position) => {
+            isGettingLocation.value = false;
+            // Guardamos coordenadas
+            currentLocation.value = {
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude
+            };
+            
+            // Si tenemos ubicación, procedemos a abrir la cámara
+            op.value.hide(); // Ocultar popover
+            showCameraModal.value = true;
+            startCamera();
+        },
+        (error) => {
+            isGettingLocation.value = false;
+            let msg = 'Error obteniendo ubicación.';
+            if (error.code === 1) msg = 'Debes permitir el acceso a tu ubicación para registrar asistencia.';
+            toast.add({ severity: 'error', summary: 'Ubicación requerida', detail: msg, life: 5000 });
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
 };
 
 // --- CÁMARA ---
@@ -123,6 +148,11 @@ const stopCamera = () => {
 
 const captureAndRegister = async () => {
     if (!videoRef.value || !canvasRef.value) return;
+    if (!currentLocation.value) {
+        toast.add({ severity: 'error', summary: 'Error', detail: 'No se detectó la ubicación.', life: 3000 });
+        return;
+    }
+
     isProcessing.value = true;
 
     try {
@@ -131,7 +161,6 @@ const captureAndRegister = async () => {
         const originalHeight = videoRef.value.videoHeight;
 
         // 2. Calcular dimensiones reducidas (Max Width 600px)
-        // Reducimos resolución para evitar errores de AWS (Max 5MB) y timeouts en móviles 4K
         const MAX_WIDTH = 600;
         let targetWidth = originalWidth;
         let targetHeight = originalHeight;
@@ -153,8 +182,14 @@ const captureAndRegister = async () => {
         // 4. Exportar a Base64 con compresión (0.7 calidad)
         const imageBase64 = canvasRef.value.toDataURL('image/jpeg', 0.7);
 
-        // Usamos la nueva ruta 'attendance.web' que apunta a registerWeb
-        const response = await axios.post(route('attendance.web'), { image: imageBase64 });
+        // Enviar imagen + Ubicación al backend
+        const payload = {
+            image: imageBase64,
+            latitude: currentLocation.value.latitude,
+            longitude: currentLocation.value.longitude
+        };
+
+        const response = await axios.post(route('attendance.web'), payload);
 
         if (response.data.status === 'success') {
             toast.add({ severity: 'success', summary: 'Registrado', detail: response.data.message, life: 4000 });
@@ -175,7 +210,7 @@ const captureAndRegister = async () => {
              toast.add({ severity: 'warn', summary: 'Atención', detail: response.data.message, life: 4000 });
         }
     } catch (error) {
-        const msg = error.response?.data?.message || 'Error al procesar la imagen.';
+        const msg = error.response?.data?.message || 'Error al procesar la solicitud.';
         toast.add({ severity: 'error', summary: 'Error', detail: msg, life: 5000 });
         console.error(error);
     } finally {
@@ -185,6 +220,7 @@ const captureAndRegister = async () => {
 
 const onModalHide = () => {
     stopCamera();
+    isGettingLocation.value = false; // Resetear estado por si se cerró antes
 };
 
 const toggleUserMenu = (event) => {
@@ -257,11 +293,25 @@ const toggleUserMenu = (event) => {
                                 </div>
                             </div>
 
+                            <!-- Botones con validación de ubicación previa -->
                             <div v-if="attendanceState === 'none'" class="text-center">
-                                <Button label="Iniciar jornada" icon="pi pi-camera" class="w-full" @click="openCamera" />
+                                <Button 
+                                    :label="isGettingLocation ? 'Ubicando...' : 'Iniciar jornada'" 
+                                    :icon="isGettingLocation ? 'pi pi-spin pi-spinner' : 'pi pi-map-marker'" 
+                                    class="w-full" 
+                                    @click="requestLocationAndOpenCamera" 
+                                    :disabled="isGettingLocation"
+                                />
                             </div>
                             <div v-else-if="attendanceState === 'checked_in'" class="text-center">
-                                <Button label="Terminar jornada" severity="danger" icon="pi pi-camera" class="w-full" @click="openCamera" />
+                                <Button 
+                                    :label="isGettingLocation ? 'Ubicando...' : 'Terminar jornada'" 
+                                    severity="danger" 
+                                    :icon="isGettingLocation ? 'pi pi-spin pi-spinner' : 'pi pi-map-marker'" 
+                                    class="w-full" 
+                                    @click="requestLocationAndOpenCamera" 
+                                    :disabled="isGettingLocation"
+                                />
                             </div>
                             <div v-else-if="attendanceState === 'completed'" class="text-center">
                                 <span class="text-green-600 font-bold text-sm flex items-center justify-center gap-1 bg-green-50 p-2 rounded border border-green-100">
@@ -304,6 +354,10 @@ const toggleUserMenu = (event) => {
             <div class="flex flex-col items-center gap-4">
                 <p class="text-sm text-center text-surface-600">
                     Asegúrate de que tu rostro esté bien iluminado y centrado.
+                    <br>
+                    <small class="text-green-600 font-bold" v-if="currentLocation">
+                        <i class="pi pi-map-marker"></i> Ubicación detectada
+                    </small>
                 </p>
 
                 <!-- Contenedor de Video -->

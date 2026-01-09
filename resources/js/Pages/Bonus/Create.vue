@@ -50,6 +50,7 @@ const behaviors = [
     { label: 'Otorgar Monto Único', value: 'fixed_amount' },
     { label: 'Pagar por Unidad (ej. por minuto)', value: 'pay_per_unit' },
     { label: 'Pagar por Día Trabajado', value: 'per_day_worked' },
+    { label: 'Pagar por Turno', value: 'per_shift' }, // NUEVA OPCIÓN
 ];
 
 // Inicializar estructura de reglas cuando se activa el switch
@@ -90,6 +91,7 @@ const amountLabel = computed(() => {
     switch (form.rule_config.behavior) {
         case 'pay_per_unit': return 'Pago por Unidad (ej. cada minuto)';
         case 'per_day_worked': return 'Monto por Día Trabajado';
+        case 'per_shift': return 'Monto por Turno (Base)';
         default: return 'Monto Fijo Total';
     }
 });
@@ -331,6 +333,7 @@ const amountLabel = computed(() => {
                                             <strong class="text-blue-900" v-if="form.rule_config.behavior === 'fixed_amount'">en total (fijo)</strong>
                                             <strong class="text-blue-900" v-else-if="form.rule_config.behavior === 'pay_per_unit'">por cada unidad</strong>
                                             <strong class="text-blue-900" v-else-if="form.rule_config.behavior === 'per_day_worked'">por cada día trabajado</strong>
+                                            <strong class="text-blue-900" v-else-if="form.rule_config.behavior === 'per_shift'">por cada turno (>=9h cuenta doble)</strong>
                                             
                                             cuando 
                                             <strong>{{ concepts.find(c => c.value === form.rule_config.concept)?.label }}</strong>

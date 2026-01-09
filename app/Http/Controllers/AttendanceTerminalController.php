@@ -16,6 +16,11 @@ class AttendanceTerminalController extends Controller
 {
     protected $rekognition;
 
+    // Coordenadas de Plaza Patria, Zapopan
+    const LOCATION_LAT = 20.7122; 
+    const LOCATION_LNG = -103.3766;
+    const ALLOWED_RADIUS_METERS = 400;
+
     public function __construct(RekognitionService $rekognition)
     {
         $this->rekognition = $rekognition;
@@ -58,13 +63,15 @@ class AttendanceTerminalController extends Controller
     }
 
     /**
-     * [WEB] Registra asistencia para el usuario logueado con validación facial.
+     * [WEB] Registra asistencia para el usuario logueado con validación facial y de ubicación.
      * Ruta: POST /attendance/web (name: attendance.web)
      */
     public function registerWeb(Request $request)
     {
         $request->validate([
             'image' => 'required|string', // Base64
+            'latitude' => 'required|numeric',
+            'longitude' => 'required|numeric',
         ]);
 
         $user = auth()->user();
@@ -77,11 +84,27 @@ class AttendanceTerminalController extends Controller
             ], 403);
         }
 
-        // 1. Decodificar imagen
+        // 1. VALIDACIÓN DE UBICACIÓN (Plaza Patria)
+        // Validamos la distancia antes de consumir recursos de AWS
+        $distance = $this->calculateDistance(
+            $request->latitude, 
+            $request->longitude, 
+            self::LOCATION_LAT, 
+            self::LOCATION_LNG
+        );
+
+        if ($distance > self::ALLOWED_RADIUS_METERS) {
+            return response()->json([
+                'status' => 'error', 
+                'message' => "Estás fuera del rango permitido (" . round($distance) . "m). Debes estar en Plaza Patria."
+            ], 403);
+        }
+
+        // 2. Decodificar imagen
         $imageParts = explode(";base64,", $request->image);
         $imageBytes = base64_decode(end($imageParts));
 
-        // 2. Buscar en AWS
+        // 3. Buscar en AWS
         $match = $this->rekognition->searchFace($imageBytes);
 
         if (!$match) {
@@ -91,7 +114,7 @@ class AttendanceTerminalController extends Controller
             ], 422);
         }
 
-        // 3. SEGURIDAD: Verificar que el rostro detectado sea el del usuario logueado
+        // 4. SEGURIDAD: Verificar que el rostro detectado sea el del usuario logueado
         if ($match['face_id'] !== $employee->aws_face_id) {
              return response()->json([
                  'status' => 'error', 
@@ -99,12 +122,12 @@ class AttendanceTerminalController extends Controller
              ], 403);
         }
 
-        // 4. Reutilizar la lógica de registro existente
+        // 5. Procesar registro
         return $this->processAttendance($employee, $request->image);
     }
 
     /**
-     * [TERMINAL] Endpoint público/kiosco: Identifica cualquier empleado por su rostro.
+     * [TERMINAL] Endpoint público/kiosco.
      */
     public function register(Request $request)
     {
@@ -158,10 +181,7 @@ class AttendanceTerminalController extends Controller
 
                 $isLate = false;
                 if ($schedule && $schedule->shift) {
-                    // FIX: Double date specification error
-                    // Extraemos SOLO la hora del turno para evitar concatenar dos fechas (2025-12-24 2025-12-24 10:00:00)
                     $shiftTimeStr = Carbon::parse($schedule->shift->start_time)->format('H:i:s');
-                    
                     $entryLimit = Carbon::parse($today . ' ' . $shiftTimeStr);
                     if ($now->greaterThan($entryLimit)) {
                         $isLate = true;
@@ -186,8 +206,6 @@ class AttendanceTerminalController extends Controller
             // --- CHECK-OUT ---
             elseif ($attendance->check_out === null) {
                 // Evitar doble check inmediato (5 min)
-                // FIX: Double date specification error
-                // Parseamos explícitamente solo la hora del check_in para asegurarnos
                 $checkInTimeOnly = Carbon::parse($attendance->check_in)->format('H:i:s');
                 $checkInDateTime = Carbon::parse($attendance->date->format('Y-m-d') . ' ' . $checkInTimeOnly);
                 
@@ -229,5 +247,25 @@ class AttendanceTerminalController extends Controller
             Log::error("Attendance Error: " . $e->getMessage());
             return response()->json(['status' => 'error', 'message' => 'Error interno.'], 500);
         }
+    }
+
+    /**
+     * Calcula la distancia entre dos puntos usando la fórmula de Haversine.
+     * Retorna distancia en metros.
+     */
+    private function calculateDistance($lat1, $lon1, $lat2, $lon2)
+    {
+        $earthRadius = 6371000; // Radio de la tierra en metros
+
+        $dLat = deg2rad($lat2 - $lat1);
+        $dLon = deg2rad($lon2 - $lon1);
+
+        $a = sin($dLat / 2) * sin($dLat / 2) +
+             cos(deg2rad($lat1)) * cos(deg2rad($lat2)) *
+             sin($dLon / 2) * sin($dLon / 2);
+
+        $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
+
+        return $earthRadius * $c;
     }
 }
