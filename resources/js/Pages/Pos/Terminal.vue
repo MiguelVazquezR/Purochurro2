@@ -16,7 +16,7 @@ const props = defineProps({
     operation: Object,
     products: Array,
     locations: Array,
-    kitchenTransfers: { // <-- NUEVA PROP
+    kitchenTransfers: { 
         type: Array,
         default: () => []
     }
@@ -30,13 +30,16 @@ const selectedLocation = ref(props.locations[0]?.id);
 const showPaymentModal = ref(false);
 const processingPayment = ref(false);
 const keypadInput = ref('0');
+
+// --- MODOS DE VENTA ---
 const isEmployeeSale = ref(false);
+const isCourtesySale = ref(false); // NUEVO: Estado para Cortesía
 
 // --- ESTADO PARA HISTORIAL COCINA ---
 const showHistoryModal = ref(false);
 
 // --- ESTADO PARA CARRITO MÓVIL ---
-const showMobileCart = ref(false); // Controla la visibilidad del Drawer/Sidebar
+const showMobileCart = ref(false); 
 
 // Estado para controlar la carga inicial y la ejecución del tour
 const isLoadingTour = ref(false); 
@@ -48,13 +51,16 @@ const paymentForm = useForm({
     items: [],
     cash_received: 0,
     is_employee_sale: false, 
+    is_courtesy_sale: false, // NUEVO
 });
 
 const filteredProducts = computed(() => {
     return props.products;
 });
 
+// Lógica de Precios Actualizada
 const getPrice = (product) => {
+    if (isCourtesySale.value) return 0.00; // Cortesía = $0
     return isEmployeeSale.value ? parseFloat(product.employee_price) : parseFloat(product.price);
 };
 
@@ -63,20 +69,38 @@ const getProductStock = (product) => {
     return product.stocks[selectedLocation.value] || 0;
 };
 
+// --- WATCHERS PARA EXCLUSIVIDAD DE MODOS ---
+
 watch(isEmployeeSale, (newValue) => {
+    if (newValue) {
+        isCourtesySale.value = false; // Desactivar cortesía si se activa empleado
+    }
+    recalculateCartPrices();
+    if (newValue) toast.add({ severity: 'info', summary: 'Modo Empleado', detail: 'Precios actualizados', life: 1000 });
+});
+
+watch(isCourtesySale, (newValue) => {
+    if (newValue) {
+        isEmployeeSale.value = false; // Desactivar empleado si se activa cortesía
+    }
+    recalculateCartPrices();
+    
+    // Mensaje visual
+    if (newValue) {
+        toast.add({ severity: 'success', summary: 'Modo Cortesía', detail: 'Todos los productos a $0.00', life: 2000 });
+    } else if (!isEmployeeSale.value) {
+        toast.add({ severity: 'info', summary: 'Modo Público', detail: 'Precios normales', life: 1000 });
+    }
+});
+
+const recalculateCartPrices = () => {
     cart.value.forEach(item => {
         const originalProduct = props.products.find(p => p.id === item.product_id);
         if (originalProduct) {
             item.price = getPrice(originalProduct);
         }
     });
-    toast.add({ 
-        severity: 'info', 
-        summary: newValue ? 'Modo Empleado' : 'Modo Público', 
-        detail: 'Precios actualizados', 
-        life: 1000 
-    });
-});
+};
 
 const addToCart = (product) => {
     const stock = getProductStock(product);
@@ -150,10 +174,12 @@ const processSale = () => {
     paymentForm.location_id = selectedLocation.value;
     
     paymentForm.is_employee_sale = isEmployeeSale.value;
+    paymentForm.is_courtesy_sale = isCourtesySale.value; // Enviamos bandera de cortesía
     
     paymentForm.items = cart.value.map(i => ({ product_id: i.product_id, quantity: i.quantity, price: i.price }));
     
     const inputVal = parseFloat(keypadInput.value) || 0;
+    // Si es cortesía (total 0), el efectivo recibido se asume 0 o lo que pongan, no afecta cambio
     paymentForm.cash_received = inputVal === 0 ? cartTotal.value : inputVal;
     
     paymentForm.post(route('pos.store-sale'), {
@@ -164,6 +190,9 @@ const processSale = () => {
             showPaymentModal.value = false;
             clearCart();
             processingPayment.value = false;
+            // Resetear modos especiales al terminar venta
+            isEmployeeSale.value = false;
+            isCourtesySale.value = false;
         },
         onError: (errors) => {
             const errorMsg = errors.items || errors[0] || 'No se procesó la venta.';
@@ -231,7 +260,6 @@ const startTour = () => {
                 } 
             },
             { 
-                // --- NUEVO PASO DEL TOUR ---
                 element: '#tour-kitchen-history', 
                 popover: { 
                     title: '2. Historial de Cocina', 
@@ -239,10 +267,10 @@ const startTour = () => {
                 } 
             },
             { 
-                element: '#tour-employee-toggle', 
+                element: '#tour-special-sales', 
                 popover: { 
-                    title: '3. Precios de Empleado', 
-                    description: 'Cuando un colaborador quiera consumir, activa este interruptor. Los precios se ajustarán automáticamente.' 
+                    title: '3. Modos Especiales', 
+                    description: 'Activa "Emp." para precio de empleado o "Cort." para dar cortesías (costo $0).' 
                 } 
             },
             { 
@@ -337,7 +365,7 @@ onBeforeUnmount(() => {
                                 <Button icon="pi pi-arrows-h" text rounded severity="help" class="!w-10 !h-10 hover:bg-indigo-50" />
                             </Link>
                             
-                            <!-- NUEVO BOTÓN: Historial Cocina -->
+                            <!-- Botón Historial Cocina -->
                             <Button 
                                 id="tour-kitchen-history"
                                 icon="pi pi-history" 
@@ -375,7 +403,11 @@ onBeforeUnmount(() => {
                                 
                                 <span 
                                     class="absolute bottom-2 right-2 backdrop-blur px-2.5 py-1 rounded-lg text-xs font-black shadow-sm border"
-                                    :class="isEmployeeSale ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-white/95 text-gray-800 border-gray-100'"
+                                    :class="{
+                                        'bg-indigo-600 text-white border-indigo-500': isEmployeeSale,
+                                        'bg-emerald-600 text-white border-emerald-500': isCourtesySale,
+                                        'bg-white/95 text-gray-800 border-gray-100': !isEmployeeSale && !isCourtesySale
+                                    }"
                                 >
                                     {{ formatCurrency(getPrice(product)) }}
                                 </span>
@@ -412,16 +444,29 @@ onBeforeUnmount(() => {
                         Orden actual
                     </h3>
 
-                    <div class="flex items-center gap-2">
-                        <div id="tour-employee-toggle" class="flex items-center gap-2 mr-2" v-tooltip.bottom="'Activar precio empleado'">
-                            <span class="text-xs font-bold text-gray-400 uppercase tracking-wider hidden xl:inline-block">Emp.</span>
+                    <div id="tour-special-sales" class="flex items-center gap-1">
+                        <!-- Toggle Empleado -->
+                        <div class="flex items-center" v-tooltip.bottom="'Precio Empleado'">
                             <ToggleButton 
                                 v-model="isEmployeeSale" 
-                                onLabel="ON" 
-                                offLabel="OFF" 
+                                onLabel="Emp." 
+                                offLabel="Emp." 
                                 onIcon="pi pi-id-card" 
                                 offIcon="pi pi-id-card"
-                                class="w-20 h-8 !text-xs"
+                                class="w-20 h-8 !text-xs !font-bold"
+                            />
+                        </div>
+
+                        <!-- Toggle Cortesía -->
+                        <div class="flex items-center" v-tooltip.bottom="'Cortesía ($0)'">
+                            <ToggleButton 
+                                v-model="isCourtesySale" 
+                                onLabel="Cort." 
+                                offLabel="Cort." 
+                                onIcon="pi pi-gift" 
+                                offIcon="pi pi-gift"
+                                class="w-20 h-8 !text-xs !font-bold p-togglebutton-success"
+                                :class="isCourtesySale ? '!bg-emerald-600 !border-emerald-600' : ''"
                             />
                         </div>
 
@@ -431,7 +476,7 @@ onBeforeUnmount(() => {
                             text 
                             rounded 
                             severity="danger" 
-                            class="!w-8 !h-8"
+                            class="!w-8 !h-8 ml-1"
                             @click="clearCart" 
                             v-tooltip.left="'Limpiar todo'" 
                         />
@@ -447,7 +492,10 @@ onBeforeUnmount(() => {
                         <div class="text-center">
                             <p class="font-bold text-gray-400 text-lg">Ticket vacío</p>
                             <p class="text-sm text-gray-300">Selecciona productos para comenzar</p>
-                            <p v-if="isEmployeeSale" class="text-xs text-indigo-500 font-bold mt-2 bg-indigo-50 px-2 py-1 rounded inline-block">Modo Venta Empleado Activo</p>
+                            <div class="mt-3 flex gap-2 justify-center">
+                                <span v-if="isEmployeeSale" class="text-[10px] text-indigo-600 font-bold bg-indigo-50 px-2 py-1 rounded border border-indigo-100">MODO EMPLEADO</span>
+                                <span v-if="isCourtesySale" class="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-1 rounded border border-emerald-100">MODO CORTESÍA</span>
+                            </div>
                         </div>
                     </div>
 
@@ -479,6 +527,7 @@ onBeforeUnmount(() => {
                                 <div class="text-right flex-shrink-0 ml-2">
                                     <p class="text-[10px] text-gray-400 font-medium">
                                         <span v-if="isEmployeeSale" class="text-indigo-500 font-bold mr-1">Emp.</span>
+                                        <span v-if="isCourtesySale" class="text-emerald-500 font-bold mr-1">Cort.</span>
                                         x {{ formatCurrency(item.price) }}
                                     </p>
                                     <p class="font-bold text-indigo-600 text-sm leading-none">{{ formatCurrency(item.price * item.quantity) }}</p>
@@ -538,17 +587,29 @@ onBeforeUnmount(() => {
                     <Button icon="pi pi-times" text rounded severity="secondary" @click="showMobileCart = false" />
                 </div>
 
-                <!-- Toggle Empleado Móvil -->
-                <div class="px-5 py-2 bg-gray-50 flex justify-between items-center border-b border-gray-100">
-                    <span class="text-sm font-bold text-gray-500">¿Venta a Empleado?</span>
-                    <ToggleButton 
-                        v-model="isEmployeeSale" 
-                        onLabel="SÍ" 
-                        offLabel="NO" 
-                        onIcon="pi pi-check" 
-                        offIcon="pi pi-times"
-                        class="w-20 h-8 !text-xs"
-                    />
+                <!-- Toggles Modos Móvil -->
+                <div class="px-5 py-2 bg-gray-50 flex justify-between items-center border-b border-gray-100 gap-2">
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-bold text-gray-500 uppercase">Emp:</span>
+                        <ToggleButton 
+                            v-model="isEmployeeSale" 
+                            onLabel="ON" 
+                            offLabel="OFF" 
+                            class="w-16 h-8 !text-xs"
+                        />
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-bold text-gray-500 uppercase">Cort:</span>
+                        <ToggleButton 
+                            v-model="isCourtesySale" 
+                            onLabel="ON" 
+                            offLabel="OFF" 
+                            onIcon="pi pi-gift" 
+                            offIcon="pi pi-gift"
+                            class="w-16 h-8 !text-xs"
+                            :class="isCourtesySale ? '!bg-emerald-600 !border-emerald-600 !text-white' : ''"
+                        />
+                    </div>
                 </div>
 
                 <!-- Lista Items Móvil -->
@@ -623,7 +684,10 @@ onBeforeUnmount(() => {
                             <div>
                                 <span class="text-gray-400 text-xs font-bold uppercase tracking-widest">Total a Pagar</span>
                                 <p class="text-5xl font-black text-gray-900 tracking-tighter mt-1">{{ formatCurrency(cartTotal) }}</p>
-                                <Tag v-if="isEmployeeSale" severity="info" value="Precio Empleado Aplicado" class="mt-2" />
+                                <div class="flex gap-2 mt-2">
+                                    <Tag v-if="isEmployeeSale" severity="info" value="Precio Empleado Aplicado" />
+                                    <Tag v-if="isCourtesySale" severity="success" value="Cortesía (Sin costo)" />
+                                </div>
                             </div>
 
                             <div class="bg-white p-4 rounded-2xl border border-indigo-100 shadow-sm">
