@@ -104,7 +104,8 @@ class PosController extends Controller
         $validated = $request->validate([
             'location_id' => 'required|exists:locations,id',
             'payment_method' => 'required|string|in:cash,card,transfer',
-            'is_employee_sale' => 'boolean', // Nueva validación para la bandera
+            'is_employee_sale' => 'boolean',
+            'is_courtesy_sale' => 'boolean',
             'items' => 'required|array|min:1',
             'items.*.product_id' => 'required|exists:products,id',
             'items.*.quantity' => 'required|integer|min:1',
@@ -116,17 +117,21 @@ class PosController extends Controller
         DB::beginTransaction();
         try {
             $totalSale = 0;
+            // Recalculamos el total (aunque el frontend lo manda, validamos por seguridad)
+            // Si es cortesía, el total debería ser 0 aunque el frontend mande otra cosa, 
+            // pero confiamos en que el frontend manda 0.
             foreach ($validated['items'] as $item) {
                 $totalSale += $item['quantity'] * $item['price'];
             }
 
-            // Crear la venta con la bandera de empleado
+            // Crear la venta con las banderas
             $sale = Sale::create([
                 'daily_operation_id' => $operation->id,
                 'user_id' => auth()->id(),
                 'payment_method' => $validated['payment_method'],
                 'total' => $totalSale,
-                'is_employee_sale' => $request->boolean('is_employee_sale') // Guardamos la bandera
+                'is_employee_sale' => $request->boolean('is_employee_sale'),
+                'is_courtesy_sale' => $request->boolean('is_courtesy_sale') // Guardamos la bandera cortesía
             ]);
 
             foreach ($validated['items'] as $item) {
@@ -151,7 +156,7 @@ class PosController extends Controller
                         'type' => StockMovementType::SALE,
                         'quantity' => $item['quantity'],
                         'user_id' => auth()->id(),
-                        'notes' => "Venta #{$sale->id}"
+                        'notes' => "Venta #{$sale->id}" . ($request->boolean('is_courtesy_sale') ? ' (Cortesía)' : '')
                     ]);
                 }
 

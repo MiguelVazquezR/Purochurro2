@@ -21,6 +21,7 @@ class StockTransferController extends Controller
             // Cargamos 'inventories' para que el frontend sepa cuánto hay en cada lugar
             'products' => Product::where('is_active', true)
                 ->where('track_inventory', true)
+                ->where('is_sellable', true)
                 ->with('inventories') 
                 ->orderBy('name')
                 ->get()
