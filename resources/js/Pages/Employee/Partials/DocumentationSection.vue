@@ -33,7 +33,7 @@ const contractConfig = ref({
 const openContractDialog = (type) => {
     contractConfig.value.type = type;
     // La fecha de inicio por defecto es la de contratación
-    const hiredDate = props.hiredAt ? new Date(props.hiredAt + 'T00:00:00') : new Date();
+    const hiredDate = props.hiredAt ? new Date(props.hiredAt) : new Date();
     contractConfig.value.start_date = hiredDate;
     
     if (type === 'training') {
