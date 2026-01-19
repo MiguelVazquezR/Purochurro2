@@ -81,7 +81,6 @@ class EmployeeController extends Controller
                 $imageBytes = file_get_contents($request->file('photo')->getRealPath());
                 
                 // Usamos el ID del User como referencia externa, o temporalmente null
-                // Aquí usamos 'TEMP_'.uniqid() o simplemente indexamos y guardamos el ID
                 $awsFaceId = $this->rekognition->indexFace($imageBytes, (string)$user->id);
             }
 
@@ -178,8 +177,8 @@ class EmployeeController extends Controller
             'default_schedule_template' => 'nullable|array',
             'email' => 'required|email|unique:employees,email,' . $employee->id,
             'password' => 'nullable|string|min:8',
-            'photo' => 'nullable|image|max:10240', // Validación foto update
-            'remove_photo' => 'nullable|boolean',   // NUEVO: Bandera para eliminar foto
+            'photo' => 'nullable|image|max:10240',
+            'remove_photo' => 'nullable|boolean',
             'recurring_bonuses' => 'nullable|array',
             'recurring_bonuses.*' => 'exists:bonuses,id',
             'is_active' => 'boolean',
@@ -205,37 +204,21 @@ class EmployeeController extends Controller
                 $employee->user->update($userData);
 
                 // --- GESTIÓN DE FOTO DE PERFIL Y REKOGNITION ---
-
-                // CASO 1: ELIMINAR FOTO (El usuario clickeó en la 'X' para quitarla)
                 if ($request->boolean('remove_photo')) {
-                    // 1. Eliminar de AWS
                     if ($employee->aws_face_id) {
                         $this->rekognition->deleteFace($employee->aws_face_id);
                         $employee->aws_face_id = null;
                         $employee->save();
                     }
-                    
-                    // 2. Eliminar de User (Jetstream)
                     $employee->user->deleteProfilePhoto();
                 }
-                
-                // CASO 2: ACTUALIZAR FOTO (El usuario subió una nueva)
-                // Nota: Si sube una nueva, remove_photo debería venir en false o ignorarse, 
-                // pero el reemplazo elimina la anterior automáticamente.
                 elseif ($request->hasFile('photo')) {
-                    // 1. Eliminar rostro anterior de AWS si existe
                     if ($employee->aws_face_id) {
                         $this->rekognition->deleteFace($employee->aws_face_id);
                     }
-
-                    // 2. Actualizar foto en User (Jetstream reemplaza el archivo viejo)
                     $employee->user->updateProfilePhoto($request->file('photo'));
-
-                    // 3. Indexar nueva foto en AWS
                     $imageBytes = file_get_contents($request->file('photo')->getRealPath());
                     $newFaceId = $this->rekognition->indexFace($imageBytes, (string)$employee->user->id);
-
-                    // 4. Actualizar ID en Empleado
                     $employee->update(['aws_face_id' => $newFaceId]);
                 }
             }
@@ -250,6 +233,28 @@ class EmployeeController extends Controller
             DB::rollBack();
             return back()->with('error', 'Error actualizando: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Ajuste Manual de Vacaciones
+     */
+    public function adjustVacation(Request $request, Employee $employee)
+    {
+        if (auth()->id() !== 1) abort(403);
+
+        $validated = $request->validate([
+            'days' => 'required|numeric|not_in:0',
+            'description' => 'required|string|max:255'
+        ]);
+
+        $employee->adjustVacationBalance(
+            $validated['days'],
+            'adjustment',
+            $validated['description'],
+            auth()->id()
+        );
+
+        return back()->with('success', 'Ajuste de vacaciones realizado.');
     }
 
     public function terminate(Request $request, Employee $employee)
@@ -269,15 +274,11 @@ class EmployeeController extends Controller
             'termination_notes' => $validated['notes']
         ]);
 
-        // Si se da de baja, podríamos borrar el rostro de AWS opcionalmente
-        // if ($employee->aws_face_id) { ... }
-
         return back()->with('success', 'Baja procesada.')->with('open_settlement', true);
     }
 
     public function destroy(Employee $employee)
     {
-        // Limpiar AWS al eliminar
         if ($employee->aws_face_id) {
             try {
                 $this->rekognition->deleteFace($employee->aws_face_id);
@@ -293,7 +294,6 @@ class EmployeeController extends Controller
         return redirect()->back()->with('success', 'Empleado eliminado.');
     }
 
-    // --- GENERACIÓN DE DOCUMENTOS (Sin cambios) ---
     public function recommendation(Employee $employee)
     {
         $startDate = $employee->hired_at->translatedFormat('d F Y');
@@ -376,6 +376,10 @@ class EmployeeController extends Controller
         ]);
     }
 
+    /**
+     * Lógica de cálculo de Finiquito y Liquidación Actualizada.
+     * AGUINALDO: Basado en año calendario actual y días trabajados por semana.
+     */
     private function calculateSeverancePreview(Employee $employee)
     {
         $dailySalary = $employee->base_salary; 
@@ -383,33 +387,83 @@ class EmployeeController extends Controller
         $startDate = $employee->hired_at;
         $years = $startDate->floatDiffInYears($endDate);
         
+        // --- 1. CÁLCULO DE AGUINALDO (CORREGIDO) ---
+        
+        // A) Determinar base anual según días trabajados por semana
+        $schedule = $employee->default_schedule_template;
+        $activeDaysPerWeek = 0;
+        
+        if (is_array($schedule)) {
+            // Contamos los días que NO son nulos
+            $activeDaysPerWeek = count(array_filter($schedule, fn($val) => !is_null($val)));
+        }
+
+        // Reglas de negocio:
+        $annualAguinaldoDays = match ($activeDaysPerWeek) {
+            6 => 12,
+            5 => 10,
+            4 => 8,
+            3 => 6,
+            2 => 2,
+            1 => 2,
+            default => 0, 
+        };
+
+        // B) Determinar días trabajados en el AÑO CALENDARIO actual
+        $startOfCalendarYear = Carbon::create($endDate->year, 1, 1)->startOfDay();
+        
+        // Si fue contratado DESPUÉS del 1 de Enero de este año, usamos fecha contrato.
+        // Si fue contratado ANTES, usamos 1 de Enero.
+        $calculationStart = $startDate->gt($startOfCalendarYear) ? $startDate : $startOfCalendarYear;
+        
+        // Días efectivamente trabajados en el año actual (diffInDays es preciso para fechas completas)
+        $daysWorkedThisCalendarYear = $calculationStart->diffInDays($endDate);
+
+        // C) Cálculo Proporcional
+        // (Días trabajados año / 365) * Días anuales que le tocan
+        $aguinaldoDaysProportional = ($daysWorkedThisCalendarYear / 365) * $annualAguinaldoDays;
+        $aguinaldoAmount = $aguinaldoDaysProportional * $dailySalary;
+
+
+        // --- 2. CÁLCULO DE VACACIONES (MANTENIDO EN ANIVERSARIO O AJUSTAR SI ES NECESARIO) ---
+        // Generalmente las vacaciones se deben desde el último aniversario.
         $lastAnniversary = $startDate->copy()->year($endDate->year);
         if ($lastAnniversary->gt($endDate)) $lastAnniversary->subYear();
-        $daysWorkedThisYear = $lastAnniversary->diffInDays($endDate);
-
-        $aguinaldoDays = ($daysWorkedThisYear / 365) * 15;
-        $aguinaldoAmount = $aguinaldoDays * $dailySalary;
-
-        $vacationDaysProportional = ($daysWorkedThisYear / 365) * 6;
+        
+        // Días desde el último aniversario
+        $daysSinceAnniversary = $lastAnniversary->diffInDays($endDate);
+        
+        // Proporcional de vacaciones (Base legal mínima o regla negocio)
+        // Aquí asumimos base de 6 días mínimo por año para el proporcional, según código previo.
+        $vacationDaysProportional = ($daysSinceAnniversary / 365) * 6; 
+        
+        // Sumamos saldo pendiente que tenga guardado
         $totalVacationDays = $vacationDaysProportional + ($employee->vacation_balance ?? 0);
         $vacationAmount = $totalVacationDays * $dailySalary;
 
         $vacationPremium = $vacationAmount * 0.25;
         $finiquitoTotal = $aguinaldoAmount + $vacationAmount + $vacationPremium;
 
+        // --- 3. LIQUIDACIÓN (Indemnización) ---
         $months3 = 90 * $dailySalary;
         $days20 = 20 * $years * $dailySalary;
+        // Prima antigüedad: tope 2 salarios mínimos (aprox 540 o el real si es menor)
         $seniority = 12 * $years * min($dailySalary, 540);
 
         return [
             'daily_salary' => $dailySalary,
             'years_worked' => number_format($years, 2),
             'concepts' => [
+                // Datos Aguinaldo
                 'aguinaldo_proportional' => round($aguinaldoAmount, 2),
-                'aguinaldo_days' => number_format($aguinaldoDays, 2),
+                'aguinaldo_days' => number_format($aguinaldoDaysProportional, 2),
+                'aguinaldo_base_annual' => $annualAguinaldoDays, // Para referencia
+                
+                // Datos Vacaciones
                 'vacations_proportional' => round($vacationAmount, 2),
                 'vacation_days' => number_format($totalVacationDays, 2),
                 'vacation_premium' => round($vacationPremium, 2),
+                
                 'total_finiquito' => round($finiquitoTotal, 2),
             ],
             'compensation_unjustified' => [
@@ -424,6 +478,7 @@ class EmployeeController extends Controller
     private function calculateSettlementCustom(Employee $employee)
     {
         $preview = $this->calculateSeverancePreview($employee);
+        $aguinaldoBase = $preview['concepts']['aguinaldo_base_annual'];
         
         return [
             'daily_salary' => $preview['daily_salary'],
@@ -433,12 +488,12 @@ class EmployeeController extends Controller
             'days_worked_year' => 'N/A', 
             'details' => [
                 [
-                    'concept' => 'Parte Proporcional de Aguinaldo',
+                    'concept' => "Parte Proporcional de Aguinaldo (Base $aguinaldoBase días/año)",
                     'days' => $preview['concepts']['aguinaldo_days'] . ' días',
                     'amount' => $preview['concepts']['aguinaldo_proportional']
                 ],
                 [
-                    'concept' => 'Vacaciones Proporcionales (Base 6 días)',
+                    'concept' => 'Vacaciones Proporcionales (Pendientes + Proporcional)',
                     'days' => $preview['concepts']['vacation_days'] . ' días',
                     'amount' => $preview['concepts']['vacations_proportional']
                 ],
