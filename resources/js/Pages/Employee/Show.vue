@@ -5,7 +5,6 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import { useConfirm } from "primevue/useconfirm";
 import { useToast } from "primevue/usetoast";
 import DocumentationSection from '@/Pages/Employee/Partials/DocumentationSection.vue';
-import Image from 'primevue/image';
 
 const props = defineProps({
     employee: Object,
@@ -59,6 +58,31 @@ const getShiftDetails = (shiftId) => {
 const formatTimeShort = (timeStr) => {
     if (!timeStr) return '';
     return timeStr.substring(0, 5);
+};
+
+// --- AJUSTE MANUAL DE VACACIONES ---
+const showVacationAdjustment = ref(false);
+const vacationForm = useForm({
+    days: 0,
+    description: '',
+});
+
+const submitVacationAdjustment = () => {
+    if (vacationForm.days === 0) {
+        toast.add({ severity: 'warn', summary: 'Cuidado', detail: 'La cantidad de días no puede ser 0.', life: 3000 });
+        return;
+    }
+    
+    vacationForm.post(route('employees.adjust-vacation', props.employee.id), {
+        onSuccess: () => {
+            showVacationAdjustment.value = false;
+            vacationForm.reset();
+            toast.add({ severity: 'success', summary: 'Ajuste Realizado', detail: 'El saldo ha sido actualizado.', life: 3000 });
+        },
+        onError: () => {
+            toast.add({ severity: 'error', summary: 'Error', detail: 'Verifica los datos.', life: 3000 });
+        }
+    });
 };
 
 // --- Lógica de Baja ---
@@ -299,7 +323,7 @@ const reactivateEmployee = () => {
                         </div>
                     </div>
                     
-                    <!-- MEJORA 2: Tarjeta de Bonos (Info detallada) -->
+                    <!-- Tarjeta de Bonos (Info detallada) -->
                     <div class="bg-white rounded-3xl shadow-sm border border-surface-200 overflow-hidden">
                         <div class="p-6 border-b border-surface-100 bg-gradient-to-r from-blue-50 to-white flex justify-between items-center">
                             <div>
@@ -350,8 +374,21 @@ const reactivateEmployee = () => {
                                 <p class="text-xs text-surface-500 mt-1">Antigüedad: {{ vacation_stats.years_service }} años</p>
                             </div>
                             <div class="text-right">
-                                <span class="block text-3xl font-extrabold text-orange-600">{{ Number(vacation_stats.available_days).toFixed(2) }}</span>
-                                <span class="text-xs font-bold text-orange-400 uppercase tracking-wider">Días Disponibles</span>
+                                <div class="flex items-center justify-end gap-3">
+                                    <div>
+                                        <span class="block text-3xl font-extrabold text-orange-600">{{ Number(vacation_stats.available_days).toFixed(2) }}</span>
+                                        <span class="text-xs font-bold text-orange-400 uppercase tracking-wider">Días Disponibles</span>
+                                    </div>
+                                    <Button 
+                                        icon="pi pi-sliders-h" 
+                                        text 
+                                        rounded 
+                                        severity="secondary" 
+                                        v-tooltip.top="'Ajuste Manual'" 
+                                        class="!w-10 !h-10 hover:bg-orange-100"
+                                        @click="showVacationAdjustment = true"
+                                    />
+                                </div>
                             </div>
                         </div>
 
@@ -366,8 +403,8 @@ const reactivateEmployee = () => {
                                 <Column field="type" header="Tipo">
                                     <template #body="slotProps">
                                         <Tag 
-                                            :value="slotProps.data.type === 'usage' ? 'Uso' : 'Acumulación'" 
-                                            :severity="slotProps.data.type === 'usage' ? 'warn' : 'success'"
+                                            :value="slotProps.data.type === 'usage' ? 'Uso' : (slotProps.data.type === 'adjustment' ? 'Ajuste' : 'Acumulación')" 
+                                            :severity="slotProps.data.type === 'usage' ? 'warn' : (slotProps.data.type === 'adjustment' ? 'info' : 'success')"
                                             class="!text-[10px] !px-2"
                                         />
                                     </template>
@@ -409,6 +446,44 @@ const reactivateEmployee = () => {
                 </div>
             </div>
         </div>
+
+        <!-- DIÁLOGO: Ajuste Manual Vacaciones -->
+        <Dialog 
+            v-model:visible="showVacationAdjustment" 
+            modal 
+            header="Ajuste Manual de Saldo" 
+            :style="{ width: '30rem' }"
+        >
+            <div class="flex flex-col gap-4">
+                <p class="text-sm text-surface-600">
+                    Modifica el saldo de vacaciones manualmente. Usa números negativos para restar días.
+                </p>
+                <div class="flex flex-col gap-2">
+                    <label class="font-bold text-sm text-surface-700">Cantidad de días (+/-)</label>
+                    <InputNumber 
+                        v-model="vacationForm.days" 
+                        showButtons 
+                        buttonLayout="horizontal" 
+                        :step="0.5"
+                        decrementButtonClass="p-button-danger" 
+                        incrementButtonClass="p-button-success" 
+                        incrementButtonIcon="pi pi-plus" 
+                        decrementButtonIcon="pi pi-minus"
+                        inputClass="text-center font-bold"
+                    />
+                </div>
+                <div class="flex flex-col gap-2">
+                    <label class="font-bold text-sm text-surface-700">Motivo / Justificación</label>
+                    <Textarea v-model="vacationForm.description" rows="2" class="w-full" placeholder="Ej. Corrección de saldo anterior..." />
+                </div>
+            </div>
+            <template #footer>
+                <div class="flex gap-2 justify-end">
+                    <Button label="Cancelar" icon="pi pi-times" text @click="showVacationAdjustment = false" severity="secondary" />
+                    <Button label="Aplicar Ajuste" icon="pi pi-check" @click="submitVacationAdjustment" :loading="vacationForm.processing" />
+                </div>
+            </template>
+        </Dialog>
 
         <!-- DIÁLOGO: Terminación / Baja -->
         <Dialog 

@@ -235,6 +235,28 @@ class EmployeeController extends Controller
         }
     }
 
+    /**
+     * Ajuste Manual de Vacaciones
+     */
+    public function adjustVacation(Request $request, Employee $employee)
+    {
+        if (auth()->id() !== 1) abort(403);
+
+        $validated = $request->validate([
+            'days' => 'required|numeric|not_in:0',
+            'description' => 'required|string|max:255'
+        ]);
+
+        $employee->adjustVacationBalance(
+            $validated['days'],
+            'adjustment',
+            $validated['description'],
+            auth()->id()
+        );
+
+        return back()->with('success', 'Ajuste de vacaciones realizado.');
+    }
+
     public function terminate(Request $request, Employee $employee)
     {
         if (auth()->id() !== 1) abort(403);
