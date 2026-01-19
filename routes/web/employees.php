@@ -6,6 +6,8 @@ use Illuminate\Support\Facades\Route;
 Route::middleware(['auth:sanctum', 'verified'])->group(function () {
     // Rutas existentes...
     Route::post('/employees/{employee}/terminate', [EmployeeController::class, 'terminate'])->name('employees.terminate');
+    // NUEVA RUTA: Ajuste Manual de Vacaciones
+    Route::post('/employees/{employee}/adjust-vacation', [EmployeeController::class, 'adjustVacation'])->name('employees.adjust-vacation');
     Route::get('/employees/{employee}/contract/{type}', [EmployeeController::class, 'contract'])->name('employees.contract');
     Route::get('/employees/{employee}/acta', [EmployeeController::class, 'acta'])->name('employees.acta');
     Route::get('/employees/{employee}/resignation', [EmployeeController::class, 'resignation'])->name('employees.resignation');
