@@ -1,10 +1,13 @@
 <script setup>
-import { ref, onMounted, watch, onBeforeUnmount } from 'vue';
+import { ref, onMounted, watch, onBeforeUnmount, computed } from 'vue';
 import { router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Chart from 'chart.js/auto';
 import axios from 'axios';
 import ProgressSpinner from 'primevue/progressspinner';
+import DatePicker from 'primevue/datepicker'; // Importar DatePicker
+import Button from 'primevue/button';
+import Popover from 'primevue/popover';
 
 // --- IMPORTAR DRIVER.JS PARA EL TOUR ---
 import { driver } from "driver.js";
@@ -13,6 +16,8 @@ import "driver.js/dist/driver.css";
 // Definimos las props
 const props = defineProps({
     filter: String,
+    customStart: String, // Fecha inicio si es custom
+    customEnd: String,   // Fecha fin si es custom
     currentSales: Number,
     currentExpenses: Number,
     currentProfit: Number,
@@ -33,6 +38,10 @@ let chartInstance = null;
 const isLoadingTour = ref(false);
 const isTourActive = ref(false);
 
+// --- ESTADO PARA FECHAS PERSONALIZADAS ---
+const customRange = ref(null);
+const op = ref(); // Referencia al Popover
+
 // --- Helpers de Formato ---
 const formatCurrency = (value) => {
     return new Intl.NumberFormat('es-MX', {
@@ -51,20 +60,55 @@ const filters = [
     { key: 'today', label: 'Hoy' },
     { key: 'week', label: 'Esta Semana' },
     { key: 'month', label: 'Este Mes' },
+    { key: 'last_3_months', label: 'Últimos 3 Meses' },
     { key: 'year', label: 'Este Año' },
+    { key: 'previous_year', label: 'Año Anterior' },
 ];
+
+const currentLabel = computed(() => {
+    if (props.filter === 'custom' && props.customStart && props.customEnd) {
+        const start = new Date(props.customStart).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
+        const end = new Date(props.customEnd).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' });
+        return `${start} - ${end}`;
+    }
+    const active = filters.find(f => f.key === props.filter);
+    return active ? active.label : 'Personalizado';
+});
 
 const setFilter = (key) => {
     router.get(route('reports.index'), { filter: key }, {
         preserveState: true,
         preserveScroll: true,
         only: [
-            'filter', 
+            'filter', 'customStart', 'customEnd',
             'currentSales', 'currentExpenses', 'currentProfit', 'averageTicket', 
             'prevSales', 'prevExpenses', 'prevProfit', 
             'variations', 'topProducts', 'chartData'
         ]
     });
+};
+
+const toggleCustomDate = (event) => {
+    op.value.toggle(event);
+};
+
+const applyCustomRange = () => {
+    if (!customRange.value || customRange.value.length < 2 || !customRange.value[0] || !customRange.value[1]) return;
+
+    // Ajustar zona horaria local a YYYY-MM-DD
+    const start = customRange.value[0].toLocaleDateString('en-CA'); // Formato ISO local
+    const end = customRange.value[1].toLocaleDateString('en-CA');
+
+    router.get(route('reports.index'), { 
+        filter: 'custom', 
+        start_date: start, 
+        end_date: end 
+    }, {
+        preserveState: true,
+        preserveScroll: true,
+    });
+    
+    op.value.hide();
 };
 
 // --- Lógica de Gráfica ---
@@ -202,7 +246,14 @@ const startTour = () => {
                 element: '#tour-time-filters', 
                 popover: { 
                     title: 'Filtros de Tiempo', 
-                    description: 'Cambia la vista para analizar el rendimiento de Hoy, la Semana, el Mes o todo el Año. Todos los datos se actualizarán automáticamente.',
+                    description: 'Usa estos botones para cambiar rápidamente el periodo. Puedes elegir rangos como "Hoy", "Este Mes" o "Año Anterior".',
+                } 
+            },
+            { 
+                element: '#tour-custom-date', 
+                popover: { 
+                    title: 'Fechas Personalizadas', 
+                    description: 'Si necesitas un rango específico (ej. del 15 al 20 de Enero), usa el botón de calendario "Personalizado".',
                 } 
             },
             { 
@@ -217,13 +268,6 @@ const startTour = () => {
                 popover: { 
                     title: 'Tendencia de Ventas', 
                     description: 'Esta gráfica te ayuda a identificar visualmente los picos y caídas en tus ventas durante el periodo seleccionado.',
-                } 
-            },
-            { 
-                element: '#tour-top-products', 
-                popover: { 
-                    title: 'Productos Estrella', 
-                    description: 'Descubre cuáles son tus 5 productos más vendidos. Útil para tomar decisiones de inventario y promociones.',
                 } 
             }
         ],
@@ -290,32 +334,56 @@ onBeforeUnmount(() => {
             <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 
                 <!-- Header y Filtros -->
-                <!-- ID TOUR: Header -->
-                <div id="tour-reports-header" class="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+                <div id="tour-reports-header" class="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-8 gap-6">
                     <div>
                         <h1 class="text-2xl font-bold text-gray-900 tracking-tight">Reportes Financieros</h1>
-                        <p class="text-sm text-gray-500 mt-1">Visión general del rendimiento del negocio.</p>
+                        <p class="text-sm text-gray-500 mt-1 flex items-center gap-2">
+                            <i class="pi pi-calendar text-indigo-500"></i>
+                            Viendo: <span class="font-bold text-gray-700">{{ currentLabel }}</span>
+                        </p>
                     </div>
 
-                    <!-- Filtro Tipo Segmented Control -->
-                    <!-- ID TOUR: Filtros -->
-                    <div id="tour-time-filters" class="bg-gray-100 p-1 rounded-lg inline-flex shadow-inner">
-                        <button 
-                            v-for="item in filters" 
-                            :key="item.key"
-                            @click="setFilter(item.key)"
-                            class="px-4 py-1.5 text-sm font-medium rounded-md transition-all duration-200"
-                            :class="filter === item.key 
-                                ? 'bg-white text-gray-900 shadow-sm' 
-                                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200/50'"
-                        >
-                            {{ item.label }}
-                        </button>
+                    <!-- Filtros -->
+                    <div class="flex flex-wrap gap-2 items-center">
+                        <div id="tour-time-filters" class="bg-gray-100 p-1 rounded-lg inline-flex shadow-inner overflow-x-auto max-w-full">
+                            <button 
+                                v-for="item in filters" 
+                                :key="item.key"
+                                @click="setFilter(item.key)"
+                                class="px-3 py-1.5 text-xs sm:text-sm font-medium rounded-md transition-all duration-200 whitespace-nowrap"
+                                :class="filter === item.key 
+                                    ? 'bg-white text-indigo-600 shadow-sm font-bold' 
+                                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200/50'"
+                            >
+                                {{ item.label }}
+                            </button>
+                        </div>
+
+                        <!-- Botón Personalizado -->
+                        <div id="tour-custom-date">
+                            <Button 
+                                icon="pi pi-calendar-plus" 
+                                :label="filter === 'custom' ? 'Rango' : ''" 
+                                @click="toggleCustomDate" 
+                                severity="secondary" 
+                                outlined 
+                                class="!border-gray-300 !text-gray-600 hover:!bg-gray-50"
+                                :class="filter === 'custom' ? '!bg-indigo-50 !border-indigo-200 !text-indigo-700' : ''"
+                            />
+                            <Popover ref="op">
+                                <div class="flex flex-col gap-4 p-2">
+                                    <div class="flex flex-col gap-2">
+                                        <label class="text-sm font-bold text-gray-700">Selecciona un rango</label>
+                                        <DatePicker v-model="customRange" selectionMode="range" :manualInput="false" inline class="w-full" />
+                                    </div>
+                                    <Button label="Aplicar Filtro" size="small" @click="applyCustomRange" :disabled="!customRange || customRange.length < 2" />
+                                </div>
+                            </Popover>
+                        </div>
                     </div>
                 </div>
 
                 <!-- Grid de KPIs -->
-                <!-- ID TOUR: KPIs -->
                 <div id="tour-kpi-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                     
                     <!-- Card: Ventas -->
@@ -400,7 +468,6 @@ onBeforeUnmount(() => {
                 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     
                     <!-- Gráfica de Tendencias -->
-                    <!-- ID TOUR: Chart -->
                     <div id="tour-sales-chart" class="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
                         <h3 class="text-lg font-bold text-gray-800 mb-4">Tendencia de Ventas</h3>
                         <div class="relative h-80 w-full">
@@ -409,7 +476,6 @@ onBeforeUnmount(() => {
                     </div>
 
                     <!-- Top Productos -->
-                    <!-- ID TOUR: Top Productos -->
                     <div id="tour-top-products" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
                         <h3 class="text-lg font-bold text-gray-800 mb-4">Top 5 Productos</h3>
                         <div class="overflow-x-auto">
@@ -455,7 +521,6 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-/* Asegura que el canvas no se desborde */
 canvas {
     max-width: 100%;
 }
