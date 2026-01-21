@@ -17,11 +17,9 @@ class ReportController extends Controller
         // 1. Configuración Inicial
         $filter = $request->query('filter', 'today'); // Default: Hoy
         
-        // CORRECCIÓN: Eliminamos Carbon::setWeekStartsAt() que causa el error.
-        // La lógica de inicio de semana (Domingo) se aplicará directamente en getDateRanges().
-
         // 2. Obtener Rangos de Fechas (Actual y Anterior para comparación)
-        $ranges = $this->getDateRanges($filter);
+        // Pasamos todo el Request para manejar las fechas custom
+        $ranges = $this->getDateRanges($filter, $request);
         
         $currentStart = $ranges['current_start'];
         $currentEnd = $ranges['current_end'];
@@ -49,7 +47,7 @@ class ReportController extends Controller
             'profit' => $this->calculateGrowth($currentProfit, $prevProfit),
         ];
 
-        // 6. Valor Agregado: Top 5 Productos Vendidos en el periodo
+        // 6. Top 5 Productos
         $topProducts = SaleDetail::select(
                 'products.name', 
                 DB::raw('SUM(sale_details.quantity) as total_qty'),
@@ -63,11 +61,13 @@ class ReportController extends Controller
             ->limit(5)
             ->get();
 
-        // 7. Datos para Gráfica (Evolución temporal)
+        // 7. Datos para Gráfica
         $chartData = $this->getChartData($filter, $currentStart, $currentEnd);
 
         return Inertia::render('Report/Index', [
             'filter' => $filter,
+            'customStart' => $request->query('start_date'),
+            'customEnd' => $request->query('end_date'),
             'currentSales' => (float) $currentSales,
             'currentExpenses' => (float) $currentExpenses,
             'currentProfit' => (float) $currentProfit,
@@ -84,25 +84,22 @@ class ReportController extends Controller
     /**
      * Define las fechas de inicio y fin para el periodo actual y el anterior.
      */
-    private function getDateRanges($filter)
+    private function getDateRanges($filter, Request $request)
     {
         $now = Carbon::now();
         
         switch ($filter) {
             case 'week':
-                // CORRECCIÓN: Usamos startOfWeek(Carbon::SUNDAY) y endOfWeek(Carbon::SATURDAY) explícitamente
-                
-                // Esta semana (Dom - Hoy)
+                // Esta semana (Dom - Hoy) vs Semana Pasada
                 $currentStart = $now->copy()->startOfWeek(Carbon::SUNDAY);
                 $currentEnd = $now->copy()->endOfDay();
                 
-                // Semana Pasada (Dom - Sab)
                 $prevStart = $now->copy()->subWeek()->startOfWeek(Carbon::SUNDAY);
                 $prevEnd = $now->copy()->subWeek()->endOfWeek(Carbon::SATURDAY); 
                 break;
 
             case 'month':
-                // Este mes (1 - Hoy) vs Mes Pasado (Completo)
+                // Este mes vs Mes Pasado
                 $currentStart = $now->copy()->startOfMonth();
                 $currentEnd = $now->copy()->endOfDay();
 
@@ -110,13 +107,50 @@ class ReportController extends Controller
                 $prevEnd = $now->copy()->subMonth()->endOfMonth();
                 break;
 
+            case 'last_3_months':
+                // Últimos 3 meses vs los 3 meses anteriores a esos
+                $currentStart = $now->copy()->subMonths(3)->startOfDay();
+                $currentEnd = $now->copy()->endOfDay();
+
+                $prevStart = $now->copy()->subMonths(6)->startOfDay();
+                $prevEnd = $now->copy()->subMonths(3)->subSecond();
+                break;
+
             case 'year':
-                // Este año vs Año pasado
+                // Este año (YTD) vs Año pasado (Completo)
                 $currentStart = $now->copy()->startOfYear();
                 $currentEnd = $now->copy()->endOfDay();
 
                 $prevStart = $now->copy()->subYear()->startOfYear();
                 $prevEnd = $now->copy()->subYear()->endOfYear();
+                break;
+
+            case 'previous_year':
+                // Año calendario anterior completo vs Hace 2 años
+                $currentStart = $now->copy()->subYear()->startOfYear();
+                $currentEnd = $now->copy()->subYear()->endOfYear();
+
+                $prevStart = $now->copy()->subYears(2)->startOfYear();
+                $prevEnd = $now->copy()->subYears(2)->endOfYear();
+                break;
+
+            case 'custom':
+                if ($request->has(['start_date', 'end_date'])) {
+                    $currentStart = Carbon::parse($request->start_date)->startOfDay();
+                    $currentEnd = Carbon::parse($request->end_date)->endOfDay();
+                    
+                    // Calcular el periodo previo de la misma duración
+                    $daysDiff = $currentStart->diffInDays($currentEnd) + 1;
+                    
+                    $prevEnd = $currentStart->copy()->subSecond();
+                    $prevStart = $prevEnd->copy()->subDays($daysDiff)->startOfDay();
+                } else {
+                    // Fallback a hoy si fallan los params
+                    $currentStart = $now->copy()->startOfDay();
+                    $currentEnd = $now->copy()->endOfDay();
+                    $prevStart = $now->copy()->subDay()->startOfDay();
+                    $prevEnd = $now->copy()->subDay()->endOfDay();
+                }
                 break;
 
             case 'today':
@@ -138,42 +172,37 @@ class ReportController extends Controller
         ];
     }
 
-    /**
-     * Calcula porcentaje de crecimiento o decrecimiento.
-     */
     private function calculateGrowth($current, $previous)
     {
         if ($previous == 0) {
             return $current > 0 ? 100 : 0; 
         }
-        
         return (($current - $previous) / abs($previous)) * 100;
     }
 
-    /**
-     * Genera datos para gráficas según la granularidad del filtro.
-     */
     private function getChartData($filter, $start, $end)
     {
         $query = Sale::whereBetween('created_at', [$start, $end]);
         $labels = [];
         $values = [];
 
-        if ($filter === 'today') {
-            // Agrupar por hora
+        // Lógica de agrupación dinámica según la duración del periodo
+        $daysDiff = $start->diffInDays($end);
+
+        if ($daysDiff <= 1) { // Hoy / Ayer
+            // Por Hora
             $data = $query->select(
                 DB::raw('HOUR(created_at) as label'), 
                 DB::raw('SUM(total) as total')
             )->groupBy('label')->pluck('total', 'label');
 
-            // Rellenar horas vacías (8:00 a 22:00)
             for ($i = 8; $i <= 22; $i++) {
                 $labels[] = sprintf('%02d:00', $i);
                 $values[] = $data[$i] ?? 0;
             }
 
-        } elseif ($filter === 'week') {
-            // Agrupar por día de la semana
+        } elseif ($daysDiff <= 31) { // Semana / Mes
+            // Por Día
             $data = $query->select(
                 DB::raw('DATE(created_at) as label'), 
                 DB::raw('SUM(total) as total')
@@ -181,33 +210,28 @@ class ReportController extends Controller
 
             $period = \Carbon\CarbonPeriod::create($start, $end);
             foreach ($period as $date) {
-                // isoFormat('ddd') requiere locale configurado, fallback a format('D') si es necesario
-                $labels[] = $date->isoFormat('ddd'); 
+                // Formato dd/mm para gráficas más limpias
+                $labels[] = $date->format('d/m'); 
                 $values[] = $data[$date->format('Y-m-d')] ?? 0;
             }
 
-        } elseif ($filter === 'month') {
-            // Agrupar por día del mes
+        } else { // Año / > 1 Mes
+            // Por Mes
             $data = $query->select(
-                DB::raw('DATE(created_at) as label'), 
+                DB::raw('DATE_FORMAT(created_at, "%Y-%m") as label'), 
                 DB::raw('SUM(total) as total')
             )->groupBy('label')->pluck('total', 'label');
 
-            $period = \Carbon\CarbonPeriod::create($start, $end);
-            foreach ($period as $date) {
-                $labels[] = $date->format('d'); 
-                $values[] = $data[$date->format('Y-m-d')] ?? 0;
-            }
-        } else {
-            // Año: Agrupar por meses
-            $data = $query->select(
-                DB::raw('MONTH(created_at) as label'), 
-                DB::raw('SUM(total) as total')
-            )->groupBy('label')->pluck('total', 'label');
+            // Iterar por meses para llenar huecos
+            $currentMonth = $start->copy()->startOfMonth();
+            $endMonth = $end->copy()->startOfMonth();
 
-            for ($i = 1; $i <= 12; $i++) {
-                $labels[] = Carbon::create()->month($i)->isoFormat('MMM'); 
-                $values[] = $data[$i] ?? 0;
+            while ($currentMonth <= $endMonth) {
+                $key = $currentMonth->format('Y-m');
+                // Label legible: Ene 24, Feb 24...
+                $labels[] = ucfirst($currentMonth->translatedFormat('M y'));
+                $values[] = $data[$key] ?? 0;
+                $currentMonth->addMonth();
             }
         }
 
