@@ -51,13 +51,6 @@ const filteredEmployees = computed(() => {
     );
 });
 
-// --- Lógica de Festivos ---
-const getHolidayInfo = (dateStr) => {
-    if (!props.holidays || props.holidays.length === 0) return null;
-    const target = dayjs(dateStr).format('MM-DD');
-    return props.holidays.find(h => dayjs(h.date).format('MM-DD') === target);
-};
-
 // --- Formato de Hora (Nueva Lógica 12h) ---
 const formatTime12h = (time24h) => {
     if (!time24h) return null;
@@ -179,8 +172,9 @@ const deleteIncident = () => {
     });
 };
 
+// --- Ahora usamos day.holiday_data enviado por el Controlador ---
 const getCellClass = (day) => {
-    const holiday = getHolidayInfo(day.date);
+    const holiday = day.holiday_data;
 
     if (holiday) {
         if (day.check_in) {
@@ -323,11 +317,11 @@ const getCellClass = (day) => {
                                     <div class="h-24 rounded-xl border p-2 flex flex-col justify-center items-center text-center cursor-pointer transition-all hover:scale-[1.02] hover:shadow-md relative overflow-hidden"
                                         :class="getCellClass(day)" @click="openEdit(row, day)">
                                         <!-- === INDICADORES (Badge Festivo Laborado) === -->
-                                        <div v-if="getHolidayInfo(day.date) && day.check_in"
+                                        <div v-if="day.holiday_data && day.check_in"
                                             class="absolute -top-1 -right-1 bg-yellow-400 text-yellow-900 text-xs font-black px-1.5 py-0.5 rounded-bl-lg rounded-tr-lg shadow-sm z-10 flex items-center gap-0.5">
                                             <i class="pi pi-star-fill !text-[9px]"></i>
-                                            {{ getHolidayInfo(day.date).pay_multiplier ?
-                                                `${getHolidayInfo(day.date).pay_multiplier}x` : '3x' }}
+                                            {{ day.holiday_data.multiplier ?
+                                                `${day.holiday_data.multiplier}x` : '3x' }}
                                         </div>
 
                                         <!-- Indicadores de Estado (Retardos y Comisión) -->
@@ -363,7 +357,7 @@ const getCellClass = (day) => {
 
                                         <!-- === CONTENIDO DE LA CELDA CON FORMATO 12H === -->
 
-                                        <template v-if="getHolidayInfo(day.date) && day.check_in">
+                                        <template v-if="day.holiday_data && day.check_in">
                                             <div class="flex flex-col gap-0.5">
                                                 <span
                                                     class="text-[11px] font-bold text-yellow-900 bg-white/40 px-1 rounded whitespace-nowrap">{{
@@ -371,14 +365,14 @@ const getCellClass = (day) => {
                                                 <span class="text-[10px] text-yellow-800 whitespace-nowrap">{{
                                                     formatTime12h(day.check_out) || '--:--' }}</span>
                                                 <span class="text-[9px] font-bold text-yellow-600 uppercase mt-0.5">{{
-                                                    getHolidayInfo(day.date).name || 'Festivo' }}</span>
+                                                    day.holiday_data.name || 'Festivo' }}</span>
                                             </div>
                                         </template>
 
-                                        <template v-else-if="getHolidayInfo(day.date)">
+                                        <template v-else-if="day.holiday_data">
                                             <div
                                                 class="text-[11px] font-bold leading-tight px-1 break-words w-full text-emerald-800">
-                                                {{ getHolidayInfo(day.date).name || 'Día Festivo' }}
+                                                {{ day.holiday_data.name || 'Día Festivo' }}
                                             </div>
                                         </template>
 
@@ -464,11 +458,11 @@ const getCellClass = (day) => {
                             </div>
 
                             <!-- === INDICADORES (Badge Festivo Laborado) === -->
-                            <div v-if="getHolidayInfo(day.date) && day.check_in"
+                            <div v-if="day.holiday_data && day.check_in"
                                 class="absolute -top-1 -right-1 bg-yellow-400 text-yellow-900 text-xs font-black px-2 py-1 rounded-bl-lg rounded-tr-lg shadow-sm z-10 flex items-center gap-0.5">
                                 <i class="pi pi-star-fill !text-xs"></i>
-                                {{ getHolidayInfo(day.date).pay_multiplier ?
-                                    `${getHolidayInfo(day.date).pay_multiplier}x` : '3x' }}
+                                {{ day.holiday_data.multiplier ?
+                                    `${day.holiday_data.multiplier}x` : '3x' }}
                             </div>
 
                             <!-- Indicadores de Estado -->
@@ -493,7 +487,7 @@ const getCellClass = (day) => {
                             </div>
 
                             <!-- Contenido Célula (Textos aumentados) -->
-                            <template v-if="getHolidayInfo(day.date) && day.check_in">
+                            <template v-if="day.holiday_data && day.check_in">
                                 <div class="flex flex-col gap-1 leading-none">
                                     <span class="text-base font-bold text-yellow-900 whitespace-nowrap">{{
                                         formatTime12h(day.check_in) }}</span>
@@ -501,10 +495,10 @@ const getCellClass = (day) => {
                                         formatTime12h(day.check_out) || '--:--' }}</span>
                                 </div>
                             </template>
-                            <template v-else-if="getHolidayInfo(day.date)">
+                            <template v-else-if="day.holiday_data">
                                 <div
                                     class="text-sm font-bold leading-tight px-1 break-words w-full line-clamp-3 text-emerald-800">
-                                    {{ getHolidayInfo(day.date).name || 'Festivo' }}
+                                    {{ day.holiday_data.name || 'Festivo' }}
                                 </div>
                             </template>
                             <template v-else-if="day.incident_type === 'asistencia' && day.check_in">
@@ -549,9 +543,9 @@ const getCellClass = (day) => {
                         <div class="text-sm text-surface-500 capitalize">
                             {{ dayjs(selectedDay.date).format('dddd, D [de] MMMM YYYY') }}
                         </div>
-                        <div v-if="getHolidayInfo(selectedDay.date)"
+                        <div v-if="selectedDay.holiday_data"
                             class="mt-1 inline-flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
-                            <i class="pi pi-calendar-plus"></i> {{ getHolidayInfo(selectedDay.date).name }}
+                            <i class="pi pi-calendar-plus"></i> {{ selectedDay.holiday_data.name }}
                         </div>
                     </div>
                 </div>
