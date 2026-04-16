@@ -14,11 +14,15 @@ class ReportController extends Controller
 {
     public function index(Request $request)
     {
-        // 1. Configuración Inicial
+        // 1. Configuración Inicial y Filtros
         $filter = $request->query('filter', 'today'); // Default: Hoy
         
+        // Obtener porcentaje de descuento (limitado entre 0 y 100 por seguridad)
+        $discount = (float) $request->query('discount', 0);
+        $discount = max(0, min(100, $discount));
+        $multiplier = 1 - ($discount / 100);
+        
         // 2. Obtener Rangos de Fechas (Actual y Anterior para comparación)
-        // Pasamos todo el Request para manejar las fechas custom
         $ranges = $this->getDateRanges($filter, $request);
         
         $currentStart = $ranges['current_start'];
@@ -29,15 +33,23 @@ class ReportController extends Controller
         // 3. Consultas de Datos Actuales
         $currentSales = Sale::whereBetween('created_at', [$currentStart, $currentEnd])->sum('total');
         $currentExpenses = Expense::whereBetween('date', [$currentStart, $currentEnd])->sum('amount');
-        $currentProfit = $currentSales - $currentExpenses;
         $transactionCount = Sale::whereBetween('created_at', [$currentStart, $currentEnd])->count();
-        
-        // Ticket Promedio (Evitar división entre cero)
         $averageTicket = $transactionCount > 0 ? ($currentSales / $transactionCount) : 0;
 
         // 4. Consultas de Datos Anteriores (Para comparación)
         $prevSales = Sale::whereBetween('created_at', [$prevStart, $prevEnd])->sum('total');
         $prevExpenses = Expense::whereBetween('date', [$prevStart, $prevEnd])->sum('amount');
+
+        // --- APLICAR EL DESCUENTO A TODOS LOS MONTOS ANTES DE CUALQUIER OTRA OPERACIÓN ---
+        $currentSales *= $multiplier;
+        $currentExpenses *= $multiplier;
+        $averageTicket *= $multiplier;
+        
+        $prevSales *= $multiplier;
+        $prevExpenses *= $multiplier;
+        
+        // Calcular ganancias después del descuento
+        $currentProfit = $currentSales - $currentExpenses;
         $prevProfit = $prevSales - $prevExpenses;
 
         // 5. Cálculo de Variaciones (%)
@@ -60,14 +72,25 @@ class ReportController extends Controller
             ->orderByDesc('total_qty')
             ->limit(5)
             ->get();
+            
+        // Aplicar multiplicador al total_money de los productos top
+        foreach ($topProducts as $product) {
+            $product->total_money *= $multiplier;
+        }
 
         // 7. Datos para Gráfica
         $chartData = $this->getChartData($filter, $currentStart, $currentEnd);
+        
+        // Aplicar multiplicador a cada valor de la gráfica
+        foreach ($chartData['values'] as &$value) {
+            $value *= $multiplier;
+        }
 
         return Inertia::render('Report/Index', [
             'filter' => $filter,
             'customStart' => $request->query('start_date'),
             'customEnd' => $request->query('end_date'),
+            'discount' => $discount, // Se pasa a la vista para mantener el estado
             'currentSales' => (float) $currentSales,
             'currentExpenses' => (float) $currentExpenses,
             'currentProfit' => (float) $currentProfit,
