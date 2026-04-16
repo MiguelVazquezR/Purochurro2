@@ -214,7 +214,8 @@ class SaleController extends Controller
             // =========================================================================
             // NUEVO 5: Traspaso de productos sobrantes (Carrito 1 -> Cocina)
             // =========================================================================
-            $productsToReturn = [1, 2, 4, 5, 14, 15];
+            //1: bolsas de churros, 2: churro natural, 5: chocochurro, 14: bolsa de masa, 15: Nieves de yogurt
+            $productsToReturn = [1, 2, 5, 14];
             $sourceSlug = 'carrito-1';
             $destSlug = 'cocina';
 

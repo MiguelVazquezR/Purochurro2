@@ -125,6 +125,10 @@ class PayrollController extends Controller
                 $incident = $attendance ? $attendance->incident_type : null;
                 $holiday = $holidaysLookup->get($monthDay);
                 
+                // VERIFICACIÓN: El día festivo aplica visualmente SÓLO si el empleado tenía turno
+                $hasSchedule = $schedule && $schedule->shift_id;
+                $isHolidayForEmployee = $holiday && $hasSchedule;
+
                 // --- Cálculo de Turnos y Minutos para la vista ---
                 $shiftsCount = 1;
                 $workedMinutes = 0;
@@ -144,10 +148,11 @@ class PayrollController extends Controller
                 }
 
                 if (!$attendance) {
-                    if ($holiday) {
+                    // Solo se marca como "Festivo" si aplica para este empleado
+                    if ($isHolidayForEmployee) {
                         $incidentLabel = $holiday->name; 
                         $incident = IncidentType::DIA_FESTIVO->value;
-                    } elseif ($schedule && $schedule->shift_id) {
+                    } elseif ($hasSchedule) {
                         $incidentLabel = 'Falta / Pendiente';
                     } else {
                         $incidentLabel = 'Descanso';
@@ -170,13 +175,15 @@ class PayrollController extends Controller
                     'late_ignored' => $attendance?->late_ignored ?? false,
                     'admin_notes' => $attendance?->admin_notes,
                     'schedule_shift' => $schedule?->shift?->name,
-                    'is_rest_day' => (!$schedule || !$schedule->shift_id),
+                    'is_rest_day' => (!$hasSchedule),
                     'commission' => $dailyCommission > 0 ? $dailyCommission : null,
-                    'holiday_data' => $holiday ? [
+                    
+                    // Solo enviamos datos de festivo si aplica para este empleado
+                    'holiday_data' => $isHolidayForEmployee ? [
                         'name' => $holiday->name,
                         'multiplier' => $holiday->pay_multiplier ?? 2.0
                     ] : null,
-                    // Nuevos campos para visualización de turnos
+                    
                     'shifts_count' => $shiftsCount,
                     'worked_minutes' => $workedMinutes,
                 ];
@@ -259,14 +266,17 @@ class PayrollController extends Controller
                 ->first();
 
             $holiday = $holidaysLookup->get($monthDay);
+            
+            $hasSchedule = $schedule && $schedule->shift_id;
+            $isHolidayForEmployee = $holiday && $hasSchedule;
 
             $incidentLabel = 'Asistencia';
             if ($attendance) {
                 $incidentLabel = $attendance->incident_type->label();
             } else {
-                if ($holiday) {
+                if ($isHolidayForEmployee) {
                     $incidentLabel = $holiday->name; 
-                } elseif ($schedule && $schedule->shift_id) {
+                } elseif ($hasSchedule) {
                     $incidentLabel = Carbon::parse($dateStr)->isFuture() ? 'Programado' : 'Falta / Pendiente';
                 } else {
                     $incidentLabel = 'Descanso';
@@ -276,15 +286,15 @@ class PayrollController extends Controller
             $days[] = [
                 'date' => $dateStr,
                 'day_name' => $period->locale('es')->dayName,
-                'incident_type' => $attendance?->incident_type?->value ?? ($holiday ? IncidentType::DIA_FESTIVO->value : null),
+                'incident_type' => $attendance?->incident_type?->value ?? ($isHolidayForEmployee ? IncidentType::DIA_FESTIVO->value : null),
                 'incident_label' => $incidentLabel,
                 'check_in' => $attendance?->check_in ? Carbon::parse($attendance->check_in)->format('H:i') : null,
                 'check_out' => $attendance?->check_out ? Carbon::parse($attendance->check_out)->format('H:i') : null,
                 'is_late' => $attendance?->is_late ?? false,
                 'schedule_shift' => $schedule?->shift?->name,
                 'shift_color' => $schedule?->shift?->color,
-                'is_rest_day' => (!$schedule || !$schedule->shift_id),
-                'holiday_data' => $holiday ? [
+                'is_rest_day' => (!$hasSchedule),
+                'holiday_data' => $isHolidayForEmployee ? [
                     'name' => $holiday->name,
                     'multiplier' => $holiday->pay_multiplier ?? 2.0
                 ] : null,
