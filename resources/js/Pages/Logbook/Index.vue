@@ -201,7 +201,7 @@ const totalLogs = computed(() => props.logbooks.length);
                             <div class="flex flex-col gap-2">
                                 <div v-for="log in day.logs" :key="log.id" 
                                      class="group flex flex-col sm:flex-row sm:items-center justify-between p-3.5 bg-white rounded-2xl border border-gray-100 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.04)] hover:shadow-[0_8px_16px_-4px_rgba(0,0,0,0.08)] hover:border-gray-200 transition-all duration-300 gap-4 sm:gap-0"
-                                     :class="!hasRead(log) ? 'bg-blue-50/10' : ''">
+                                     :class="!hasRead(log) ? 'bg-blue-500/10' : ''">
                                     
                                     <!-- Información principal (Izquierda) -->
                                     <div class="flex items-center gap-3.5 flex-1 min-w-0 pr-4 cursor-pointer" @click="openShowModal(log)">
