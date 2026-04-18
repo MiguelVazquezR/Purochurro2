@@ -11,11 +11,13 @@ use App\Models\IncidentRequest;
 use App\Models\Product;
 use App\Models\Sale;
 use App\Models\WorkSchedule;
+use App\Models\Logbook;
 use App\Services\PayrollService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class DashboardController extends Controller
 {
@@ -23,6 +25,28 @@ class DashboardController extends Controller
     {
         $user = auth()->user();
         $today = Carbon::today();
+
+        // ----------------------------------------------------
+        // LÓGICA COMÚN: BITÁCORAS SIN LEER
+        // ----------------------------------------------------
+        $unreadLogbooksQuery = Logbook::whereDoesntHave('readers', function($q) use ($user) {
+            $q->where('user_id', $user->id);
+        });
+
+        $unreadLogbooksCount = $unreadLogbooksQuery->count();
+
+        // Tomamos solo las 4 más recientes para la vista previa
+        $unreadLogbooks = $unreadLogbooksQuery->with('author')
+            ->latest()
+            ->take(4)
+            ->get()
+            ->map(fn($l) => [
+                'id' => $l->id,
+                'author_name' => $l->author->name,
+                'author_photo' => $l->author->profile_photo_url,
+                'date' => $l->created_at->diffForHumans(), // Ej: "hace 2 horas"
+                'preview' => Str::limit($l->content, 60),
+            ]);
 
         // ----------------------------------------------------
         // VISTA ADMINISTRADOR (ID 1)
@@ -98,6 +122,8 @@ class DashboardController extends Controller
                     'pending_requests' => $pendingRequests,
                     'low_stock_products' => $lowStockProducts,
                     'upcoming_birthdays' => $upcomingBirthdays,
+                    'unread_logbooks' => $unreadLogbooks,
+                    'unread_logbooks_count' => $unreadLogbooksCount,
                 ]
             ]);
         }
@@ -197,6 +223,8 @@ class DashboardController extends Controller
                 'worked_days' => $payrollCalc['days_worked'],
                 'weekly_schedule' => $weeklySchedule,
                 'upcoming_birthdays' => $upcomingBirthdays,
+                'unread_logbooks' => $unreadLogbooks,
+                'unread_logbooks_count' => $unreadLogbooksCount,
             ]
         ]);
     }

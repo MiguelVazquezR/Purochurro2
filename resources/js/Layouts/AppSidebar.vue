@@ -30,6 +30,7 @@ const menuItems = computed(() => {
     const items = [
         { label: 'Inicio', route: 'dashboard', icon: 'pi pi-home', visible: true },
         { label: 'Punto de venta', route: 'pos.index', icon: 'pi pi-shopping-bag', visible: true },
+        { label: 'Bitácoras', route: 'logbooks.index', icon: 'pi pi-book', visible: true },
         { label: 'Reportes', route: 'reports.index', icon: 'pi pi-chart-bar', visible: isAdmin.value },
         { label: 'Usuarios', route: 'employees.index', icon: 'pi pi-users', visible: isAdmin.value },
         { 
