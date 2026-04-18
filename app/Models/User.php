@@ -4,6 +4,7 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -92,5 +93,15 @@ class User extends Authenticatable
             ->where('module_name', $moduleName)
             ->where('is_completed', true)
             ->exists();
+    }
+
+    public function logbooks(): HasMany
+    {
+        return $this->hasMany(Logbook::class);
+    }
+
+    public function readLogbooks(): BelongsToMany
+    {
+        return $this->belongsToMany(Logbook::class, 'logbook_reads');
     }
 }

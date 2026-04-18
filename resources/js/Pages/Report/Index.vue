@@ -8,7 +8,7 @@ import ProgressSpinner from 'primevue/progressspinner';
 import DatePicker from 'primevue/datepicker'; 
 import Button from 'primevue/button';
 import Popover from 'primevue/popover';
-import InputNumber from 'primevue/inputnumber'; // Importar InputNumber
+import InputNumber from 'primevue/inputnumber'; 
 
 // --- IMPORTAR DRIVER.JS PARA EL TOUR ---
 import { driver } from "driver.js";
@@ -19,7 +19,7 @@ const props = defineProps({
     filter: String,
     customStart: String, 
     customEnd: String,   
-    discount: Number, // Prop agregada para recibir el descuento actual
+    discount: Number, 
     currentSales: Number,
     currentExpenses: Number,
     currentProfit: Number,
@@ -42,9 +42,9 @@ const isTourActive = ref(false);
 
 // --- ESTADOS PARA FECHAS Y DESCUENTO ---
 const customRange = ref(null);
-const op = ref(); // Referencia al Popover de fechas
-const opDiscount = ref(); // Referencia al Popover del descuento
-const discountValue = ref(props.discount || 0); // Estado local del descuento
+const op = ref(); 
+const opDiscount = ref(); 
+const discountValue = ref(props.discount || 0); 
 
 // --- Helpers de Formato ---
 const formatCurrency = (value) => {
@@ -79,7 +79,6 @@ const currentLabel = computed(() => {
     return active ? active.label : 'Personalizado';
 });
 
-// Actualiza los parámetros sin perder el descuento aplicado
 const setFilter = (key) => {
     router.get(route('reports.index'), { filter: key, discount: discountValue.value }, {
         preserveState: true,
@@ -100,7 +99,6 @@ const toggleCustomDate = (event) => {
 const applyCustomRange = () => {
     if (!customRange.value || customRange.value.length < 2 || !customRange.value[0] || !customRange.value[1]) return;
 
-    // Ajustar zona horaria local a YYYY-MM-DD
     const start = customRange.value[0].toLocaleDateString('en-CA'); 
     const end = customRange.value[1].toLocaleDateString('en-CA');
 
@@ -128,7 +126,6 @@ const applyDiscount = () => {
         discount: discountValue.value || 0
     };
     
-    // Mantener rango de fecha custom si está activo
     if (props.filter === 'custom') {
         params.start_date = props.customStart;
         params.end_date = props.customEnd;
@@ -149,6 +146,45 @@ const applyDiscount = () => {
 };
 
 // --- Lógica de Gráfica ---
+
+// Plugin personalizado para mostrar los valores encima y debajo de los puntos
+const alwaysShowDataLabels = {
+    id: 'alwaysShowDataLabels',
+    afterDatasetsDraw(chart) {
+        const { ctx, data } = chart;
+        ctx.save();
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'center';
+        
+        const dataset = data.datasets[0];
+        const meta = chart.getDatasetMeta(0);
+        
+        meta.data.forEach((bar, index) => {
+            const value = dataset.data[index];
+            if (value > 0) { // Solo mostrar mayores a 0 para mantener limpio
+                const formatted = new Intl.NumberFormat('es-MX', { 
+                    style: 'currency', 
+                    currency: 'MXN', 
+                    maximumFractionDigits: 0 
+                }).format(value);
+                
+                ctx.fillStyle = '#6366f1'; // Color indigo
+                
+                // Alternar la posición del texto: Par = Arriba, Impar = Abajo
+                if (index % 2 === 0) {
+                    ctx.textBaseline = 'bottom';
+                    ctx.fillText(formatted, bar.x, bar.y - 10);
+                } else {
+                    ctx.textBaseline = 'top';
+                    ctx.fillText(formatted, bar.x, bar.y + 10);
+                }
+            }
+        });
+        
+        ctx.restore();
+    }
+};
+
 const initChart = () => {
     if (chartInstance) {
         chartInstance.destroy();
@@ -180,9 +216,16 @@ const initChart = () => {
                 tension: 0.4 
             }]
         },
+        plugins: [alwaysShowDataLabels], // Inyectamos nuestro plugin personalizado
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            layout: {
+                padding: {
+                    top: 25, // Damos espacio arriba para que quepan los números
+                    bottom: 25 // Damos espacio abajo para los números alternados
+                }
+            },
             plugins: {
                 legend: { display: false },
                 tooltip: {
@@ -332,7 +375,6 @@ const markTourAsCompleted = async () => {
     }
 };
 
-// Lifecycle Hooks
 onMounted(async () => {
     initChart();
 
@@ -457,7 +499,7 @@ onBeforeUnmount(() => {
                 </div>
 
                 <!-- Grid de KPIs -->
-                <div id="tour-kpi-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <div id="tour-kpi-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-8">
                     
                     <!-- Card: Ventas -->
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 relative overflow-hidden group hover:shadow-md transition-shadow">
@@ -537,14 +579,38 @@ onBeforeUnmount(() => {
 
                 </div>
 
-                <!-- Sección Principal: Gráfica y Top Productos -->
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Sección Principal: Gráfica a todo lo ancho -->
+                <div id="tour-sales-chart" class="w-full bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col mb-8">
+                    <h3 class="text-lg font-bold text-gray-800 mb-4 shrink-0">Tendencia de Ventas</h3>
+                    <div class="relative flex-1 w-full min-h-[350px]">
+                        <canvas ref="chartRef"></canvas>
+                    </div>
+                </div>
+
+                <!-- Sección Inferior: Desglose y Top Productos (Mitad y Mitad) -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     
-                    <!-- Gráfica de Tendencias -->
-                    <div id="tour-sales-chart" class="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-                        <h3 class="text-lg font-bold text-gray-800 mb-4">Tendencia de Ventas</h3>
-                        <div class="relative h-80 w-full">
-                            <canvas ref="chartRef"></canvas>
+                    <!-- Tabla: Desglose de Puntos -->
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col max-h-[400px]">
+                        <h3 class="text-lg font-bold text-gray-800 mb-4 shrink-0">Desglose de Ventas</h3>
+                        <div class="overflow-y-auto custom-scrollbar flex-1 pr-2">
+                            <table class="w-full text-sm text-left">
+                                <thead class="text-xs text-gray-400 uppercase border-b border-gray-100 sticky top-0 bg-white z-10">
+                                    <tr>
+                                        <th class="pb-3 font-semibold">Periodo</th>
+                                        <th class="pb-3 font-semibold text-right">Monto</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-50">
+                                    <tr v-for="(val, index) in chartData.values" :key="index" class="hover:bg-gray-50/50 transition-colors">
+                                        <td class="py-2.5 font-medium text-gray-700">{{ chartData.labels[index] }}</td>
+                                        <td class="py-2.5 text-right font-semibold text-gray-900">{{ formatCurrency(val) }}</td>
+                                    </tr>
+                                    <tr v-if="!chartData.values || chartData.values.length === 0">
+                                        <td colspan="2" class="py-4 text-center text-gray-400 italic">No hay datos en este periodo</td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
 
@@ -565,12 +631,12 @@ onBeforeUnmount(() => {
                                         <td class="py-3 font-medium text-gray-700">
                                             <div class="flex items-center gap-2">
                                                 <span 
-                                                    class="w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold"
+                                                    class="w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold shrink-0"
                                                     :class="index === 0 ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-500'"
                                                 >
                                                     {{ index + 1 }}
                                                 </span>
-                                                {{ product.name }}
+                                                <span class="truncate">{{ product.name }}</span>
                                             </div>
                                         </td>
                                         <td class="py-3 text-right text-gray-600">{{ product.total_qty }}</td>
@@ -596,5 +662,20 @@ onBeforeUnmount(() => {
 <style scoped>
 canvas {
     max-width: 100%;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: #f1f1f1; 
+    border-radius: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #cbd5e1; 
+    border-radius: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8; 
 }
 </style>

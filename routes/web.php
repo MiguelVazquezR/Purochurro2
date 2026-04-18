@@ -42,6 +42,7 @@ Route::middleware([
     require __DIR__ . '/web/sales.php';
     require __DIR__ . '/web/reports.php';
     require __DIR__ . '/web/tutorials.php';
+    require __DIR__ . '/web/logbooks.php';
 
 });
 
