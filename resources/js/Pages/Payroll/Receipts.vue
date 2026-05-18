@@ -102,13 +102,24 @@ const getReceiptData = (dataItem) => {
         label: 'Festivos Laborados'
     };
 
-    // 3. Vacaciones
+    // 3. Vacaciones y Prima Vacacional
+    const vacationsAmount = moneyBreakdown.salary_vacations !== undefined
+        ? moneyBreakdown.salary_vacations
+        : (breakdown.vacations || 0) * baseSalary;
+
     const vacations = { 
         count: breakdown.vacations || 0, 
-        amount: moneyBreakdown.salary_vacations !== undefined
-            ? moneyBreakdown.salary_vacations
-            : (breakdown.vacations || 0) * baseSalary, 
+        amount: vacationsAmount, 
         label: 'Vacaciones' 
+    };
+
+    const vacationPremiumAmount = moneyBreakdown.salary_vacation_premium !== undefined
+        ? moneyBreakdown.salary_vacation_premium
+        : (vacationsAmount * 0.25);
+
+    const vacationPremium = {
+        amount: vacationPremiumAmount,
+        label: 'Prima vacacional (25%)'
     };
 
     // 4. Otros Conceptos
@@ -139,6 +150,7 @@ const getReceiptData = (dataItem) => {
             holidays_rest: holidaysRest,
             holidays_worked: holidaysWorked,
             vacations: vacations,
+            vacation_premium: vacationPremium,
             bonuses_list: bonusesList,
             commissions: commissions
         }, 
@@ -256,6 +268,13 @@ const print = () => window.print();
                                         <td class="py-0.5 px-1 text-gray-800">Vacaciones</td>
                                         <td class="py-0.5 px-1 text-center text-gray-500">{{ receipt.concepts.vacations.count }}</td>
                                         <td class="py-0.5 px-1 text-right font-mono font-medium text-gray-900">{{ formatCurrency(receipt.concepts.vacations.amount) }}</td>
+                                    </tr>
+
+                                    <!-- Prima Vacacional -->
+                                    <tr v-if="receipt.concepts.vacations.count > 0">
+                                        <td class="py-0.5 px-1 text-gray-600 pl-4 text-[10px]"><i class="pi pi-angle-right text-[8px] mr-1"></i> Prima vacacional (25%)</td>
+                                        <td class="py-0.5 px-1 text-center text-gray-500"></td>
+                                        <td class="py-0.5 px-1 text-right font-mono font-medium text-gray-900">{{ formatCurrency(receipt.concepts.vacation_premium.amount) }}</td>
                                     </tr>
 
                                     <!-- COMISIONES (Lógica Dual: Detallada o Resumida) -->

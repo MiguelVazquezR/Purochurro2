@@ -150,13 +150,26 @@ const closePayroll = () => {
                             </div>
 
                             <!-- Vacaciones -->
-                            <div v-if="item.breakdown?.vacations > 0" class="flex justify-between items-center py-1 border-b border-blue-50 pb-1">
-                                <span class="text-blue-600 font-medium">Vacaciones</span>
-                                <div class="flex items-center gap-2">
-                                    <span class="text-xs text-blue-500 font-medium">({{ item.breakdown.vacations }})</span>
-                                    <span class="font-mono font-bold text-blue-800">{{ formatCurrency(item.totals_breakdown?.salary_vacations) }}</span>
+                            <template v-if="item.breakdown?.vacations > 0">
+                                <div class="flex justify-between items-center py-1">
+                                    <span class="text-blue-600 font-medium">Vacaciones</span>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-xs text-blue-500 font-medium">({{ item.breakdown.vacations }})</span>
+                                        <span class="font-mono font-bold text-blue-800">{{ formatCurrency(item.totals_breakdown?.salary_vacations) }}</span>
+                                    </div>
                                 </div>
-                            </div>
+                                <!-- Prima Vacacional -->
+                                <div class="flex justify-between items-center py-1 border-b border-cyan-50 pb-1 pl-3 bg-cyan-50/30 rounded-md">
+                                    <span class="text-cyan-700 text-xs font-medium flex items-center gap-1">
+                                        <i class="pi pi-angle-right text-[10px]"></i> Prima vacacional (25%)
+                                    </span>
+                                    <div class="flex items-center gap-2">
+                                        <span class="font-mono font-bold text-cyan-800 text-sm">
+                                            {{ formatCurrency(item.totals_breakdown?.salary_vacation_premium || (item.totals_breakdown?.salary_vacations * 0.25)) }}
+                                        </span>
+                                    </div>
+                                </div>
+                            </template>
 
                             <!-- Descansos Festivos -->
                             <!-- CORRECCIÓN: Se oculta si el importe es 0, aunque haya días -->
