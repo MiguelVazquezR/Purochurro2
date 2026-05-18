@@ -76,6 +76,7 @@ class PayrollService
             'salary_holidays_worked' => 0,
             'salary_holidays_rest' => 0,
             'salary_vacations' => 0,
+            'salary_vacation_premium' => 0, // <- Agregado para la prima vacacional
             'salary_incapacity' => 0,
             'salary_permissions' => 0,
             'salary_other' => 0,
@@ -348,6 +349,12 @@ class PayrollService
 
         // 4. Bonos
         $bonusResult = $this->bonusService->calculate($employee, $periodStats, $dailyStats);
+
+        // 5. Calcular Prima Vacacional (Si hubo vacaciones)
+        if ($moneyBreakdown['salary_vacations'] > 0) {
+            $moneyBreakdown['salary_vacation_premium'] = $moneyBreakdown['salary_vacations'] * 0.25;
+            $totalPay += $moneyBreakdown['salary_vacation_premium']; // Se suma directamente al gran total
+        }
 
         $totalPay += $bonusResult['total_amount'];
         $totalPay += $totalCommissions;
