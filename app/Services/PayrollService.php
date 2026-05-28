@@ -251,7 +251,7 @@ class PayrollService
             $baseCommission = 0;
             $salesRef = 0;
 
-            if ($attendance && !is_null($attendance->commission_amount)) {
+            if ($attendance && $attendance->incident_type === IncidentType::ASISTENCIA && !is_null($attendance->commission_amount)) {
                 $baseCommission = $attendance->commission_amount;
                 $finalCommission = $baseCommission * $shiftsCount;
                 if ($operation) $salesRef = $operation->sales->sum('total');

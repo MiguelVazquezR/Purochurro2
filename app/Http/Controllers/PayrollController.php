@@ -219,11 +219,19 @@ class PayrollController extends Controller
             ->first();
 
         if ($receipt) {
+            $breakdown = $receipt->breakdown_data;
+
+            // Retrocompatibilidad: asegurar que la prima vacacional exista en recibos viejos
+            if (!isset($breakdown['totals_breakdown']['salary_vacation_premium'])) {
+                $breakdown['totals_breakdown']['salary_vacation_premium'] =
+                    ($breakdown['totals_breakdown']['salary_vacations'] ?? 0) * 0.25;
+            }
+
             $payrollData = [
                 'total_pay' => $receipt->total_pay,
                 'days_worked' => $receipt->days_worked,
                 'total_bonuses' => $receipt->total_bonuses,
-                'breakdown' => $receipt->breakdown_data,
+                'breakdown' => $breakdown,
                 'paid_at' => $receipt->paid_at,
                 'is_closed' => true
             ];
