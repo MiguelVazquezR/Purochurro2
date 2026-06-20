@@ -140,8 +140,8 @@ class PayrollController extends Controller
                         if ($out->lessThan($in)) $out->addDay();
                         $workedMinutes = $in->diffInMinutes($out);
                         
-                        // Regla visual: >= 540 minutos (9 horas)
-                        if ($workedMinutes >= 540) {
+                        // Regla visual: >= 600 minutos (10 horas)
+                        if ($workedMinutes >= 600) {
                             $shiftsCount = 2;
                         }
                     } catch (\Exception $e) {}
