@@ -132,8 +132,8 @@ class PayrollService
                         // Calculamos minutos exactos trabajados
                         $dayWorkedMinutes = $in->diffInMinutes($out);
 
-                        // Regla: A partir de 9 horas (540 minutos) son 2 turnos
-                        if ($dayWorkedMinutes >= 540) {
+                        // Regla: A partir de 10 horas (600 minutos) son 2 turnos
+                        if ($dayWorkedMinutes >= 600) {
                             $shiftsCount = 2;
                             $counters['double_shifts']++;
                         }
@@ -220,7 +220,6 @@ class PayrollService
                         $status = 'Permiso sin Goce';
                         break;
                     case IncidentType::DESCANSO:
-                        $isPayable = true;
                         $status = 'Descanso';
                         break;
                 }
@@ -251,7 +250,7 @@ class PayrollService
             $baseCommission = 0;
             $salesRef = 0;
 
-            if ($attendance && !is_null($attendance->commission_amount)) {
+            if ($attendance && $attendance->incident_type === IncidentType::ASISTENCIA && !is_null($attendance->commission_amount)) {
                 $baseCommission = $attendance->commission_amount;
                 $finalCommission = $baseCommission * $shiftsCount;
                 if ($operation) $salesRef = $operation->sales->sum('total');
@@ -313,6 +312,7 @@ class PayrollService
                     case 'other': $moneyBreakdown['salary_other'] += $dayPay; break;
                     default: $moneyBreakdown['salary_normal'] += $dayPay; break;
                 }
+
             }
 
             // --- ESTADÍSTICAS ---

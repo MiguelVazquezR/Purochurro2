@@ -347,6 +347,12 @@ onBeforeUnmount(() => {
                                 <span class="text-blue-600">Vacaciones ({{ bd.vacations }})</span>
                                 <span class="font-bold text-blue-600">{{ formatCurrency(totals.salary_vacations) }}</span>
                             </div>
+
+                            <!-- Prima Vacacional (25%) -->
+                            <div v-if="(totals.salary_vacation_premium || (totals.salary_vacations * 0.25)) > 0" class="flex justify-between items-center">
+                                <span class="text-blue-600">Prima vacacional (25%)</span>
+                                <span class="font-bold text-blue-600">{{ formatCurrency(totals.salary_vacation_premium || (totals.salary_vacations * 0.25)) }}</span>
+                            </div>
                         </div>
                     </div>
 

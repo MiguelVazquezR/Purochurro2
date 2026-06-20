@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\IncidentType;
 use App\Enums\StockMovementType;
 use App\Models\Attendance;
 use App\Models\DailyOperation;
@@ -162,8 +163,9 @@ class SaleController extends Controller
                 $commissionBase = floor(($totalSales / ($refProduct->price * 10)) / 10) * 10;
             }
 
-            // 2. Guardar Comisión en Asistencias del Día
+            // 2. Guardar Comisión SOLO en asistencias reales (excluye vacaciones, incapacidades, etc.)
             $affectedAttendances = Attendance::whereDate('date', $dailyOperation->date)
+                ->where('incident_type', IncidentType::ASISTENCIA->value)
                 ->update(['commission_amount' => $commissionBase]);
 
             // 3. Preparar notas de cierre
