@@ -24,4 +24,13 @@ export default defineConfig({
             ]
         })
     ],
+    // comentar los siguientes bloques si no se usa el dominio purochurro.test
+    server: {
+        detectTls: 'purochurro.test',
+        // 💡 Añade este bloque hmr para corregir el WebSocket de Vite:
+        hmr: {
+            host: 'purochurro.test',
+            protocol: 'wss',
+        },
+    },
 });
