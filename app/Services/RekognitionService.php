@@ -8,6 +8,12 @@ use Aws\Laravel\AwsFacade as AWS;
 
 class RekognitionService
 {
+    /** Límite de rostros por llamada a deleteFaces (AWS admite hasta 4096). */
+    protected const DELETE_BATCH_SIZE = 1000;
+
+    /** Máximo de rostros por página en listFaces. */
+    protected const LIST_PAGE_SIZE = 1000;
+
     protected $client;
     protected $collectionId;
 
@@ -77,6 +83,12 @@ class RekognitionService
         }
     }
 
+    /**
+     * Elimina un rostro de la colección.
+     *
+     * Es idempotente: si el rostro ya no existe en la colección se considera
+     * una eliminación exitosa (el objetivo era dejar de pagar por él).
+     */
     public function deleteFace(string $faceId): bool
     {
         try {
@@ -86,9 +98,96 @@ class RekognitionService
             ]);
             return true;
         } catch (AwsException $e) {
+            if ($e->getAwsErrorCode() === 'InvalidParameterException') {
+                Log::info("Rekognition: el rostro {$faceId} ya no existía en la colección {$this->collectionId}.");
+                return true;
+            }
+
             Log::error('Rekognition Delete Error: ' . $e->getMessage());
             return false;
         }
+    }
+
+    /**
+     * Elimina varios rostros en lotes.
+     *
+     * @param  array<int, string>  $faceIds
+     * @return int Cantidad de rostros eliminados (o ya inexistentes).
+     */
+    public function deleteFaces(array $faceIds): int
+    {
+        $faceIds = array_values(array_unique(array_filter($faceIds)));
+
+        if (empty($faceIds)) {
+            return 0;
+        }
+
+        $deleted = 0;
+
+        foreach (array_chunk($faceIds, self::DELETE_BATCH_SIZE) as $batch) {
+            try {
+                $result = $this->client->deleteFaces([
+                    'CollectionId' => $this->collectionId,
+                    'FaceIds'      => $batch,
+                ]);
+
+                $deleted += count($result['DeletedFaces'] ?? $batch);
+            } catch (AwsException $e) {
+                if ($e->getAwsErrorCode() === 'InvalidParameterException') {
+                    // El lote contiene rostros que ya no existen: se reintenta uno por uno
+                    // para no perder los que sí siguen en la colección.
+                    foreach ($batch as $faceId) {
+                        if ($this->deleteFace($faceId)) {
+                            $deleted++;
+                        }
+                    }
+                    continue;
+                }
+
+                Log::error('Rekognition Delete Batch Error: ' . $e->getMessage());
+            }
+        }
+
+        return $deleted;
+    }
+
+    /**
+     * Lista todos los rostros de la colección (paginado).
+     *
+     * @return array<int, array{face_id: ?string, external_image_id: ?string, image_id: ?string, confidence: ?float}>
+     */
+    public function listFaces(): array
+    {
+        $this->ensureCollectionExists();
+
+        $faces = [];
+        $nextToken = null;
+
+        do {
+            $params = [
+                'CollectionId' => $this->collectionId,
+                'MaxResults'   => self::LIST_PAGE_SIZE,
+            ];
+
+            if ($nextToken) {
+                $params['NextToken'] = $nextToken;
+            }
+
+            $result = $this->client->listFaces($params);
+
+            foreach ($result['Faces'] ?? [] as $face) {
+                $faces[] = [
+                    'face_id'           => $face['FaceId'] ?? null,
+                    'external_image_id' => $face['ExternalImageId'] ?? null,
+                    'image_id'          => $face['ImageId'] ?? null,
+                    'confidence'        => $face['Confidence'] ?? null,
+                ];
+            }
+
+            $nextToken = $result['NextToken'] ?? null;
+        } while ($nextToken);
+
+        return $faces;
     }
 
     /**
