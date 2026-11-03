@@ -12,6 +12,7 @@ use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Carbon\Carbon;
 
 class EmployeeController extends Controller
@@ -187,9 +188,15 @@ class EmployeeController extends Controller
             'termination_notes' => 'nullable|string',
         ]);
 
+        // Estado previo: lo necesitamos para detectar bajas y reactivaciones.
+        $wasActive = (bool) $employee->is_active;
+
         DB::beginTransaction();
         try {
             $employee->update($validated);
+
+            $warnings = [];
+            $photoHandled = false;
 
             if ($employee->user) {
                 $userData = [
@@ -204,31 +211,51 @@ class EmployeeController extends Controller
                 $employee->user->update($userData);
 
                 // --- GESTIÓN DE FOTO DE PERFIL Y REKOGNITION ---
-                if ($request->boolean('remove_photo')) {
-                    if ($employee->aws_face_id) {
-                        $this->rekognition->deleteFace($employee->aws_face_id);
-                        $employee->aws_face_id = null;
-                        $employee->save();
+                try {
+                    if ($request->boolean('remove_photo')) {
+                        // Sin foto tampoco debe quedar rostro en AWS.
+                        $this->removeEmployeeFace($employee, $warnings);
+                        $employee->user->deleteProfilePhoto();
+                        $photoHandled = true;
                     }
-                    $employee->user->deleteProfilePhoto();
-                }
-                elseif ($request->hasFile('photo')) {
-                    if ($employee->aws_face_id) {
-                        $this->rekognition->deleteFace($employee->aws_face_id);
+                    elseif ($request->hasFile('photo')) {
+                        // 1. Fuera el rostro anterior: AWS cobra por cada rostro guardado.
+                        $this->removeEmployeeFace($employee, $warnings);
+
+                        // 2. Guardar la nueva foto de perfil.
+                        $employee->user->updateProfilePhoto($request->file('photo'));
+
+                        // 3. Indexar el rostro nuevo.
+                        $imageBytes = file_get_contents($request->file('photo')->getRealPath());
+                        $newFaceId = $this->rekognition->indexFace($imageBytes, (string)$employee->user->id);
+                        $employee->update(['aws_face_id' => $newFaceId]);
+                        $photoHandled = true;
+
+                        if (! $newFaceId) {
+                            $warnings[] = 'No se detectó un rostro válido en la nueva foto; el empleado no podrá checar con reconocimiento facial hasta que se suba una foto adecuada.';
+                        }
                     }
-                    $employee->user->updateProfilePhoto($request->file('photo'));
-                    $imageBytes = file_get_contents($request->file('photo')->getRealPath());
-                    $newFaceId = $this->rekognition->indexFace($imageBytes, (string)$employee->user->id);
-                    $employee->update(['aws_face_id' => $newFaceId]);
+                } catch (\Throwable $e) {
+                    Log::error("No se pudo sincronizar la foto/rostro del empleado {$employee->id}: " . $e->getMessage());
+                    $warnings[] = 'No se pudo sincronizar el rostro en AWS; revisa los logs.';
                 }
             }
+
+            // --- ALTA / BAJA: el rostro solo debe existir mientras el empleado esté activo ---
+            $this->syncFaceState($employee, $wasActive, $photoHandled, $warnings);
 
             if (isset($validated['recurring_bonuses'])) {
                 $employee->recurringBonuses()->sync($validated['recurring_bonuses']);
             }
             
             DB::commit();
-            return redirect()->route('employees.index')->with('success', 'Empleado actualizado.');
+
+            $message = 'Empleado actualizado.';
+            if (!empty($warnings)) {
+                $message .= ' (Advertencia: ' . implode(' ', $warnings) . ')';
+            }
+
+            return redirect()->route('employees.index')->with('success', $message);
         } catch (\Exception $e) {
             DB::rollBack();
             return back()->with('error', 'Error actualizando: ' . $e->getMessage());
@@ -271,27 +298,135 @@ class EmployeeController extends Controller
             'is_active' => false,
             'termination_date' => $validated['termination_date'],
             'termination_reason' => $validated['reason'],
-            'termination_notes' => $validated['notes']
+            'termination_notes' => $validated['notes'] ?? null
         ]);
 
-        return back()->with('success', 'Baja procesada.')->with('open_settlement', true);
+        // Baja: el rostro ya no se necesita y AWS cobra por cada rostro almacenado.
+        $warnings = [];
+        $this->removeEmployeeFace($employee, $warnings);
+
+        $message = 'Baja procesada.';
+        if (!empty($warnings)) {
+            $message .= ' (Advertencia: ' . implode(' ', $warnings) . ')';
+        }
+
+        return back()->with('success', $message)->with('open_settlement', true);
     }
 
     public function destroy(Employee $employee)
     {
-        if ($employee->aws_face_id) {
-            try {
-                $this->rekognition->deleteFace($employee->aws_face_id);
-            } catch (\Exception $e) {
-                Log::warning("No se pudo eliminar rostro AWS: " . $e->getMessage());
-            }
-        }
+        $warnings = [];
+        $this->removeEmployeeFace($employee, $warnings);
 
         $employee->delete();
         if ($employee->user) {
             $employee->user->delete();
         }
-        return redirect()->back()->with('success', 'Empleado eliminado.');
+
+        $message = 'Empleado eliminado.';
+        if (!empty($warnings)) {
+            $message .= ' (Advertencia: ' . implode(' ', $warnings) . ')';
+        }
+
+        return redirect()->back()->with('success', $message);
+    }
+
+    /**
+     * Elimina de AWS Rekognition el rostro registrado del empleado y limpia la columna local.
+     *
+     * No lanza excepciones: cualquier fallo se registra en el log y en $warnings.
+     *
+     * @param  array<int, string>  $warnings
+     * @return bool True si AWS confirmó la eliminación (o el rostro ya no existía).
+     */
+    private function removeEmployeeFace(Employee $employee, array &$warnings = []): bool
+    {
+        $faceId = $employee->aws_face_id;
+        $deleted = true;
+
+        if ($faceId) {
+            try {
+                $deleted = $this->rekognition->deleteFace($faceId);
+            } catch (\Throwable $e) {
+                $deleted = false;
+                Log::warning("Rekognition: error eliminando el rostro del empleado {$employee->id}: " . $e->getMessage());
+            }
+        }
+
+        // La columna se limpia siempre: si AWS falló, el rostro queda huérfano
+        // y lo puede barrer el comando rekognition:purge-orphan-faces.
+        if ($employee->aws_face_id !== null) {
+            $employee->forceFill(['aws_face_id' => null])->save();
+        }
+
+        if (! $deleted) {
+            $warnings[] = 'AWS no confirmó la eliminación del rostro; se puede reintentar con "php artisan rekognition:purge-orphan-faces --delete".';
+        }
+
+        return $deleted;
+    }
+
+    /**
+     * Sincroniza el rostro del empleado con su estado laboral.
+     *
+     * - Empleado dado de baja: se elimina el rostro (AWS cobra por rostro almacenado).
+     * - Empleado activo sin rostro registrado (p. ej. al reactivarlo): se vuelve a
+     *   indexar la foto de perfil que ya está guardada en el disco.
+     *
+     * @param  array<int, string>  $warnings
+     */
+    private function syncFaceState(Employee $employee, bool $wasActive, bool $photoHandled = false, array &$warnings = []): void
+    {
+        if (! $employee->is_active) {
+            $this->removeEmployeeFace($employee, $warnings);
+            return;
+        }
+
+        // Si en esta misma petición ya se indexó el rostro, no hay nada que hacer.
+        if ($photoHandled || $employee->aws_face_id) {
+            return;
+        }
+
+        try {
+            $newFaceId = $this->indexFaceFromProfilePhoto($employee);
+
+            if ($newFaceId) {
+                $employee->update(['aws_face_id' => $newFaceId]);
+
+                if (! $wasActive) {
+                    Log::info("Rekognition: rostro reindexado tras reactivar al empleado {$employee->id}.");
+                }
+
+                return;
+            }
+        } catch (\Throwable $e) {
+            Log::error("Rekognition: error reindexando el rostro del empleado {$employee->id}: " . $e->getMessage());
+        }
+
+        if ($employee->user?->profile_photo_path) {
+            $warnings[] = 'No se pudo registrar el rostro del empleado para el reconocimiento facial; verifica que su foto de perfil muestre el rostro con claridad.';
+        }
+    }
+
+    /**
+     * Indexa en Rekognition la foto de perfil que ya está guardada en el disco.
+     */
+    private function indexFaceFromProfilePhoto(Employee $employee): ?string
+    {
+        $user = $employee->user;
+
+        if (! $user || ! $user->profile_photo_path) {
+            return null;
+        }
+
+        $disk = Storage::disk(config('jetstream.profile_photo_disk', 'public'));
+
+        if (! $disk->exists($user->profile_photo_path)) {
+            Log::warning("Rekognition: no se encontró la foto de perfil del usuario {$user->id} en el disco.");
+            return null;
+        }
+
+        return $this->rekognition->indexFace($disk->get($user->profile_photo_path), (string) $user->id);
     }
 
     public function recommendation(Employee $employee)
